@@ -488,7 +488,7 @@ function create_container() {
             fi
 
             # Check for Windows start
-            if $download_finish && ! $install_started && grep -q "Windows started" "$LOGFILE"; then
+            if $download_finished && ! $install_started && grep -q "Windows started" "$LOGFILE"; then
                 print_step "16" "Installing Windows. This will take a while."
                 install_started=true
                 last_activity_time=$current_time
