@@ -612,10 +612,10 @@ function check_available() {
                 /port:3388 \
                 /app:program:cmd.exe,cmd:'/c tsdiscon' \
                 2>&1)
+            local freerdp_exit=$?
             echo "DEBUG: FreeRDP output was:" >> "$LOGFILE"
             echo "$freerdp_output" >> "$LOGFILE"
             echo "DEBUG: FreeRDP exit code was: $freerdp_exit" >> "$LOGFILE"
-            local freerdp_exit=$?
             
             # Log the output regardless of success/failure
             echo "$freerdp_output" >> "$LOGFILE"
