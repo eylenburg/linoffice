@@ -488,7 +488,7 @@ function create_container() {
             fi
 
             # Check for Windows start
-            if $download_finish && ! $install_started && grep -q "Windows started" "$LOGFILE"; then
+            if $download_finished && ! $install_started && grep -q "Windows started" "$LOGFILE"; then
                 print_step "16" "Installing Windows. This will take a while."
                 install_started=true
                 last_activity_time=$current_time
@@ -612,10 +612,10 @@ function check_available() {
                 /port:3388 \
                 /app:program:cmd.exe,cmd:'/c tsdiscon' \
                 2>&1)
+            local freerdp_exit=$?
             echo "DEBUG: FreeRDP output was:" >> "$LOGFILE"
             echo "$freerdp_output" >> "$LOGFILE"
             echo "DEBUG: FreeRDP exit code was: $freerdp_exit" >> "$LOGFILE"
-            local freerdp_exit=$?
             
             # Log the output regardless of success/failure
             echo "$freerdp_output" >> "$LOGFILE"
