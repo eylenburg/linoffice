@@ -735,6 +735,7 @@ function waRunCommand() {
         printf "\033[1m./linoffice.sh reset\033[0m -> kills all FreeRDP processes, cleans up Office lock files, and reboots the Windows VM\n"
         printf "\033[1m./linoffice.sh cleanup [--full|--reset]\033[0m -> cleans up Office lock files (such as ~\$file.xlsx) in the home folder and removable media; --full cleans all files regardless of creation date, --reset resets the last cleanup timestamp\n"
         printf "\033[1m./linoffice.sh --startcontainer\033[0m -> will start the Windows container if it is not running and not execute anything else\n"
+        printf "\033[1m./linoffice.sh --stopcontainer\033[0m -> shuts down the Windows container completely\n"
         exit 0
     fi
 
@@ -1044,6 +1045,39 @@ function waCheckIdle() {
 }
 
 ### MAIN LOGIC ###
+
+# Handle --stopcontainer command first and exit
+if [[ "$1" == "--stopcontainer" ]]; then
+    dprint "SHUTTING DOWN CONTAINER"
+    echo "Attempting graceful shutdown of LinOffice container..."
+
+    # Check the current status of the container
+    CONTAINER_STATUS=$(podman inspect --format='{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null)
+
+    # If the container is paused, it must be un-paused first to shut down cleanly
+    if [[ "$CONTAINER_STATUS" == "paused" ]]; then
+        echo "Container is paused, unpausing to allow clean shutdown..."
+        "$COMPOSE_COMMAND" --file "$COMPOSE_PATH" unpause &>/dev/null
+        sleep 2 # Give it a moment to wake up before stopping
+    fi
+
+    # Now, if the container is running (or was just un-paused), stop it
+    if [[ "$CONTAINER_STATUS" == "running" || "$CONTAINER_STATUS" == "paused" ]]; then
+        echo "Sending stop command... (this may take up to 2 minutes)"
+        # Use podman-compose stop, which respects the grace period in the yaml
+        "$COMPOSE_COMMAND" --file "$COMPOSE_PATH" stop &>/dev/null
+    else
+        echo "Container is not running."
+    fi
+
+    echo "Cleaning up all resources..."
+    # Finally, run 'down' to ensure the stopped container is fully removed.
+    "$COMPOSE_COMMAND" --file "$COMPOSE_PATH" down --remove-orphans &>/dev/null
+
+    echo "LinOffice has been shut down."
+    exit 0
+fi
+
 dprint "START"
 dprint "SCRIPT_DIR: ${SCRIPT_DIR_PATH}"
 dprint "SCRIPT_ARGS: ${*}"

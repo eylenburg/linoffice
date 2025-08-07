@@ -38,10 +38,12 @@ services:
     restart: on-failure # Restart the Windows VM if the exit code indicates an error.
     volumes:
       - data:/storage:Z # Mount volume 'data' to use as Windows 'C:' drive.
-      #- ${HOME}:/shared:z # Mount Linux user home directory @ '\\host.lan\Data'.
+      - ${HOME}/Public:/shared:z # Mount Linux user home directory @ '\\host.lan\Data'.
       #- /path/to/second/hard/disk:/storage2 # Uncomment to mount the second hard disk within the Windows VM. Ensure 'DISK2_SIZE' is specified above.
       - ./oem:/oem:Z # Enables automatic post-install execution of 'oem/install.bat'
-      #- /home/user/Win11.iso:/boot.iso # Uncomment to use a custom Windows ISO. If specified, 'VERSION' (e.g. 'tiny11') will be ignored.
+      #- /home/user/Win11.iso:/boot.iso # Uncomment to use a custom Windows ISO. If specified, 'VERSION' (e.g. 'tiny11') will be ignored. Also, use windows 10 iot ltsc, it is much lighter and works fine, with me at least
+      - /dev/kvm # Enable KVM.
+      - /dev/net/tun # Enable tuntap
       # Custom ISO doesn't work if stored on btrfs formatted drive!
       # SELinux: ":Z" means the volume will only be available in this container, ":z" means the volume can also be accessed by other containers
     devices:
