@@ -1059,6 +1059,14 @@ use_venv() {
     source "$activate_script"
     VENV_PATH="$venv_dir"
     USE_VENV=1
+
+    USER_SITE_PATH=$(python3 -m site | grep USER_SITE | awk -F"'" '{print $2}')
+    PODMAN_BIN=$USER_SITE_PATH/podman_compose.py
+
+    if [[ -f "$PODMAN_BIN" ]]; then
+        echo "using podman-compose from venv"
+        COMPOSE_COMMAND="python $PODMAN_BIN"
+    fi
     return 0
   else
     echo "Virtual environment not found at $venv_dir"
