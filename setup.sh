@@ -63,6 +63,10 @@ print_step() {
     echo -e "\n${GREEN}Step $1:${NC} $2"
 }
 
+print_progress() {
+    echo -e "${GREEN}Progress:${NC} $1"
+}
+
 # Function to display usage information
 print_usage() {
     print_info "Usage: $0 [--desktop] [--firstrun] [--installoffice] [--healthcheck]"
@@ -577,6 +581,7 @@ function create_container() {
     local timeout_counter=0
     local max_timeout=3600  # 60 minutes maximum wait time between podman-compose log output
     local last_activity_time=$(date +%s)
+    local windows_version=""
 
     # Start podman-compose in the background with unbuffered output and strip ANSI codes
     print_info "Starting podman-compose in detached mode..."
@@ -621,20 +626,24 @@ function create_container() {
                 print_step "4" "Starting Windows download (about 5 GB). This will take a while depending on your Internet speed."
                 download_started=true
                 last_activity_time=$current_time
+                windows_version=$(grep "Downloading Windows" "$LOGFILE" | tail -1 | grep -oE '10|11')
             fi
 
-            # Output download progress at 10%, 20%, ..., 90%
+            # Output download progress at each percent
             if $download_started && ! $download_finished; then
-                # Only print each progress percentage once
-                if [ -z "${progress_printed}" ]; then
-                    progress_printed=""
-                fi
-                for pct in 10 20 30 40 50 60 70 80 90; do
-                    if grep -q "${pct}%" "$LOGFILE" && [[ ",${progress_printed}," != *",${pct},"* ]]; then
-                        print_info "Windows download progress: ${pct}%"
-                        progress_printed="${progress_printed},${pct}"
+                # Parse wget progress line: percent and speed
+                last_percent=${last_percent:--1}
+                progress_line=$(grep -E "%" "$LOGFILE" | grep -E "[0-9.]+[MK]" | tail -1)
+                pct=$(echo "$progress_line" | grep -oE "[ ]{1,3}[0-9]{1,3}%" | tail -1 | tr -d ' %')
+                speed=$(echo "$progress_line" | grep -oE "[0-9.]+[MK]" | tail -1)
+                if [[ "$pct" =~ ^[0-9]+$ ]] && [ "$pct" -gt "$last_percent" ] && [ "$pct" -le 100 ]; then
+                    if [ -n "$windows_version" ]; then
+                        print_progress "Downloading Windows ${windows_version}: ${pct}% | Speed: ${speed}B/s"
+                    else
+                        print_progress "Downloading Windows: ${pct}% | Speed: ${speed}B/s"
                     fi
-                done
+                    last_percent=$pct
+                fi
             fi
 
             # Check for download completion

@@ -181,6 +181,13 @@ class Wizard(QWidget):
                     percentage = min(87.5, self.progress_bar.value())  # Cap at 87.5% for steps > 8
                 self.progress_bar.setValue(int(percentage))
 
+            # Handle Windows download percentage
+            download_match = re.search(r'Downloading Windows (10|11): (\d+)%', clean_line)
+            if download_match:
+                win_percent = int(download_match.group(2))
+                # Map to range 37–50%
+                mapped_percent = 37 + (win_percent / 100) * (50 - 37)
+                self.progress_bar.setValue(int(mapped_percent))
         # Check if process has finished and exited successfully
         if self.process.state() == QProcess.NotRunning:
             if self.process.exitStatus() == QProcess.NormalExit and self.process.exitCode() == 0:
