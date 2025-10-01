@@ -1105,6 +1105,12 @@ function check_available() {
                 break
             fi
 
+			# Break out of outer loop (while true) on success
+			if [ $success -eq 1 ]; then
+				print_success "RDP server is available"
+				return 0
+			fi
+
             # If we've reached the reboot threshold and haven't rebooted yet, reboot the VM
             if [ $attempt -eq $reboot_threshold ] && [ "$vm_rebooted" = false ]; then
                 print_info "Reached $reboot_threshold failed attempts. Rebooting Windows VM to restart Office installation..."
