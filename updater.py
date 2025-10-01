@@ -12,7 +12,7 @@ import urllib.parse
 # Configuration
 REPO_OWNER = "eylenburg"
 REPO_NAME = "linoffice"
-CURRENT_VERSION = "2.1.2" 
+CURRENT_VERSION = "2.1.3" 
 GITHUB_API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases"
 PRESERVE_FILES = {"config/compose.yaml", "config/linoffice.conf", "config/oem/registry/regional_settings.reg"}
 GITHUB_TOKEN = None  # Can replace with GitHub Personal Access Token if hitting API limits
