@@ -1099,6 +1099,7 @@ function check_available() {
                 if echo "$freerdp_output" | grep -q "ERRINFO_LOGOFF_BY_USER"; then
                     print_success "RDP server is available (headless probe)"
                     success=1
+					return 0 # exit the function
                 fi
             fi
 
