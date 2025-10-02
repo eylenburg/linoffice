@@ -1100,11 +1100,6 @@ function check_available() {
                 fi
             fi
 
-            # If success was detected above, break out of attempt loop
-            if [ $success -eq 1 ]; then
-                break
-            fi
-
 			# Break out of outer loop (while true) on success
 			if [ $success -eq 1 ]; then
 				print_success "RDP server is available"
