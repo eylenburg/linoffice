@@ -983,7 +983,7 @@ function check_available() {
             if echo "$minimal_output" | grep -q "ERRINFO_LOGOFF_BY_USER"; then
                 print_success "RDP server is available (user logoff detected)"
                 success=1
-                break
+				return 0 # exit the function
             fi
 
             # Minimal probe: try all three binaries in fixed order regardless of detected default
@@ -1074,8 +1074,9 @@ function check_available() {
                     echo "DEBUG: FreeRDP (minimal candidate) exit code was: $cand_exit" >> "$LOGFILE"
                     if echo "$cand_output" | grep -q "ERRINFO_LOGOFF_BY_USER"; then
                         print_success "RDP server is available (user logoff detected)"
+						FREERDP_COMMAND="$candidate"
                         success=1
-                        break
+						return 0 # exit the function
                     fi
                 done
             fi
@@ -1087,6 +1088,7 @@ function check_available() {
                 if echo "$freerdp_output" | grep -q "ERRINFO_LOGOFF_BY_USER"; then
                     print_success "RDP server is available (user logoff detected)"
                     success=1
+					return 0 # exit the function
                 fi
             fi
 
