@@ -244,6 +244,10 @@ If you still can't get the setup to work, please [create a bug report ("setup di
 - The `setup.log`, `setup_office.log`, and `setup_rdp.log` (if they exist) in `C:\OEM` in the Windows VM (if you can only access the VM through the browser/VNC, there is no clipboard sharing with Linux, so a screenshot is fine)
 - Your system information (LinOffice version, Linux distribution, desktop environment, Wayland or X11, how did you install podman, podman-compose and freerdp?)
 
+### Logging in to Microsoft
+
+Some users have reported the issue that when they try to log in to Microsoft (e.g. in order to activate Microsoft 365) they login window would hang and not progress. The workaround for this access a "full" RDP session (in GUI: `Tools` -> Access Windows desktop `via RDP`; in CLI: `./linoffice.sh windows`). You should be able to log in in this session. Afterwards, you can close the window and use LinOffice as usual.
+
 ### Window management
 
 In my experience, window management can be wonky, particularly if you're using Wayland instead of X11 or if you're using multiple monitors.
