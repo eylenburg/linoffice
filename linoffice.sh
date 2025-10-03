@@ -53,6 +53,7 @@ AUTOPAUSE_TIME="300"
 HIDEF="on"
 DEBUG="true"
 CLEANUP_TIME_WINDOW=86400  # Default: 24 hours. Do not delete Office lock files older than 24 hours, to avoid deleting pre-existing files.
+XWAYLAND=""
 
 # OTHER
 FREERDP_PID=-1
@@ -499,9 +500,16 @@ function waLoadConfig() {
     # Load LinOffice configuration file.
     if [ -f "$CONFIG_PATH" ]; then
         source "$CONFIG_PATH"
+        # Normalize FREERDP_COMMAND to an array
+        if [ -n "$FREERDP_COMMAND" ]; then
+            read -r -a FREERDP_COMMAND <<< "$FREERDP_COMMAND"
+        else
+            FREERDP_COMMAND=()
+        fi
     else
         waThrowExit $EC_MISSING_CONFIG
     fi
+
 
     # Update $RDP_SCALE.
     waFixScale
@@ -526,25 +534,25 @@ function waGetFreeRDPCommand() {
     # Declare variables.
     local FREERDP_MAJOR_VERSION="" # Stores the major version of the installed copy of FreeRDP.
 
-    # Attempt to set a FreeRDP command if the command variable is empty.
+    # Check for 'xfreerdp3' command if the command variable is empty.
+    if [ -z "$FREERDP_COMMAND" ]; then
+        if command -v xfreerdp3 &>/dev/null; then
+            # Check FreeRDP major version is 3 or greater.
+            FREERDP_MAJOR_VERSION=$(xfreerdp3 --version | head -n 1 | grep -o -m 1 '\b[0-9]\S*' | head -n 1 | cut -d'.' -f1)
+            if [[ $FREERDP_MAJOR_VERSION =~ ^[0-9]+$ ]] && ((FREERDP_MAJOR_VERSION >= 3)); then
+                FREERDP_COMMAND=(xfreerdp3)
+            fi
+        fi
+    fi
+
+    # Check for 'xfreerdp' (fallback option)
     if [ -z "$FREERDP_COMMAND" ]; then
         # Check for 'xfreerdp'.
         if command -v xfreerdp &>/dev/null; then
             # Check FreeRDP major version is 3 or greater.
             FREERDP_MAJOR_VERSION=$(xfreerdp --version | head -n 1 | grep -o -m 1 '\b[0-9]\S*' | head -n 1 | cut -d'.' -f1)
             if [[ $FREERDP_MAJOR_VERSION =~ ^[0-9]+$ ]] && ((FREERDP_MAJOR_VERSION >= 3)); then
-                FREERDP_COMMAND="xfreerdp"
-            fi
-        fi
-
-        # Check for 'xfreerdp3' command as a fallback option.
-        if [ -z "$FREERDP_COMMAND" ]; then
-            if command -v xfreerdp3 &>/dev/null; then
-                # Check FreeRDP major version is 3 or greater.
-                FREERDP_MAJOR_VERSION=$(xfreerdp3 --version | head -n 1 | grep -o -m 1 '\b[0-9]\S*' | head -n 1 | cut -d'.' -f1)
-                if [[ $FREERDP_MAJOR_VERSION =~ ^[0-9]+$ ]] && ((FREERDP_MAJOR_VERSION >= 3)); then
-                    FREERDP_COMMAND="xfreerdp3"
-                fi
+                FREERDP_COMMAND=(xfreerdp)
             fi
         fi
 
@@ -555,19 +563,25 @@ function waGetFreeRDPCommand() {
                     # Check FreeRDP major version is 3 or greater.
                     FREERDP_MAJOR_VERSION=$(flatpak list --columns=application,version | grep "^com.freerdp.FreeRDP" | awk '{print $2}' | cut -d'.' -f1)
                     if [[ $FREERDP_MAJOR_VERSION =~ ^[0-9]+$ ]] && ((FREERDP_MAJOR_VERSION >= 3)); then
-                        FREERDP_COMMAND="flatpak run --command=xfreerdp com.freerdp.FreeRDP"
+                        FREERDP_COMMAND=(flatpak run --command=xfreerdp com.freerdp.FreeRDP)
                     fi
                 fi
             fi
         fi
+
+        # Use Xwayland if specific in config file
+        if [ "$XWAYLAND" = "true" ] && [ -n "$WAYLAND_DISPLAY" ]; then
+            FREERDP_COMMAND=(WAYLAND_DISPLAY= "${FREERDP_COMMAND[@]}")
+        fi
     fi
 
-    if command -v "$FREERDP_COMMAND" &>/dev/null || [ "$FREERDP_COMMAND" = "flatpak run --command=xfreerdp com.freerdp.FreeRDP" ]; then
-        dprint "Using FreeRDP command '${FREERDP_COMMAND}'."
-
+    if command -v "${FREERDP_COMMAND[0]}" &>/dev/null || \
+    [ "${FREERDP_COMMAND[*]}" = "flatpak run --command=xfreerdp com.freerdp.FreeRDP" ]; then
+        dprint "Using FreeRDP command '${FREERDP_COMMAND[*]}'."
     else
         waThrowExit "$EC_MISSING_FREERDP"
     fi
+
 }
 
 # Name: 'waCheckContainerRunning'
@@ -782,7 +796,7 @@ function waRunCommand() {
 
         # Open Windows RDP session.
         dprint "WINDOWS"
-        podman unshare --rootless-netns "$FREERDP_COMMAND" \
+        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
             /scale:$RDP_SCALE \
@@ -803,7 +817,7 @@ function waRunCommand() {
     elif [ "$1" = "manual" ]; then
         # Open specified application.
         dprint "MANUAL: ${2}"
-        podman unshare --rootless-netns "$FREERDP_COMMAND" \
+        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
             /scale:$RDP_SCALE \
@@ -822,7 +836,7 @@ function waRunCommand() {
     elif [ "$1" = "update" ]; then
         # Run the script
         dprint "UPDATE"
-        podman unshare --rootless-netns "$FREERDP_COMMAND" \
+        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
             /scale:$RDP_SCALE \
@@ -842,7 +856,7 @@ function waRunCommand() {
     elif [ "$1" = "registry_override" ]; then
         # Run the script
         dprint "UPDATE"
-        podman unshare --rootless-netns "$FREERDP_COMMAND" \
+        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
             /scale:$RDP_SCALE \
@@ -862,7 +876,7 @@ function waRunCommand() {
     elif [ "$1" = "internet_off" ]; then
         # Run the script
         dprint "UPDATE"
-        podman unshare --rootless-netns "$FREERDP_COMMAND" \
+        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
             /scale:$RDP_SCALE \
@@ -882,7 +896,7 @@ function waRunCommand() {
     elif [ "$1" = "internet_on" ]; then
         # Run the script
         dprint "UPDATE"
-        podman unshare --rootless-netns "$FREERDP_COMMAND" \
+        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
             /scale:$RDP_SCALE \
@@ -922,7 +936,7 @@ function waRunCommand() {
         if [ -z "$2" ]; then
             # No file path specified.
             dprint "LAUNCHING OFFICE APP: $FULL_NAME"
-            podman unshare --rootless-netns "$FREERDP_COMMAND" \
+            podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
                 /u:$RDP_USER \
                 /p:$RDP_PASS \
                 /scale:$RDP_SCALE \
@@ -953,7 +967,7 @@ function waRunCommand() {
             dprint "WINDOWS_FILE_PATH: ${FILE_PATH}"
 
             dprint "LAUNCHING OFFICE APP WITH FILE: $FULL_NAME"
-            podman unshare --rootless-netns "$FREERDP_COMMAND" \
+            podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
                 /u:$RDP_USER \
                 /p:$RDP_PASS \
                 /scale:$RDP_SCALE \

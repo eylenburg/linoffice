@@ -71,7 +71,12 @@ CLEANUP_TIME_WINDOW=86400  # Clean lock files from the last 24 hours
 # VALID VALUES: See https://github.com/awakecoding/FreeRDP-Manuals/blob/master/User/FreeRDP-User-Manual.markdown
 RDP_FLAGS="/cert:ignore /sound /microphone"
 
-# FREERDP RAIL HIDEF
+# [USE XWAYLAND ON WAYLAND DISPLAY SERVER]
+# - Ignored if display server is X11
+# - VALID VALUES: true, false
+XWAYLAND=""
+
+# [FREERDP RAIL HIDEF]
 # - This option controls the value of the `hidef` option passed to the /app parameter of the FreeRDP command.
 # - Setting this option to 'off' may resolve window misalignment issues related to maximized windows.
 # DEFAULT VALUE: 'on'

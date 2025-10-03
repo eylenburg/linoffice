@@ -12,6 +12,7 @@ APPDATA_PATH="${HOME}/.local/share/linoffice"
 mkdir -p "$APPDATA_PATH"
 SUCCESS_FILE="${APPDATA_PATH}/success"
 PROGRESS_FILE="${APPDATA_PATH}/setup_progress.log"
+OUTPUT_LOG="${APPDATA_PATH}/setup_output.log"
 
 # Relative filepaths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,7 +27,16 @@ REGIONAL_REG="$(realpath "${SCRIPT_DIR}/config/oem/registry/regional_settings.re
 LOGFILE="${APPDATA_PATH}/windows_install.log"
 APPS_DIR="$(realpath "${SCRIPT_DIR}/apps")"
 DESKTOP_DIR="$(realpath "${APPS_DIR}/desktop")"
+
+# Available and working freerdp commands
+EXISTS_XFREERDP=false
+EXISTS_XFREERDP3=false
+EXISTS_FLATPAK_FREERDP=false
 FREERDP_COMMAND="" # will be checked in the script whether it's xfreerdp, xfreerdp3, or the Flatpak version
+FREERDP_SEC_RDP=false
+FREERDP_NETWORK_LAN=false
+FREERDP_NSC=false
+FREERDP_XWAYLAND=false
 
 # Progress tracking states
 PROGRESS_REQUIREMENTS="requirements_completed"
@@ -49,6 +59,9 @@ NC='\033[0m' # No Color
 USE_VENV=0
 
 COMPOSE_COMMAND="podman-compose"
+
+# Redirect all output to the log file
+exec > >(stdbuf -oL -eL sed -u 's/\x1b\[[0-9;]*m//g' | tee -a "$OUTPUT_LOG") 2>&1
 
 # Functions to print colored output
 print_error() {
@@ -206,23 +219,35 @@ function check_linoffice_container() {
 
 # Function to detect and set the FreeRDP command
 function detect_freerdp_command() {
-    # Set FREERDP_COMMAND to the first available FreeRDP command (xfreerdp, xfreerdp3, or flatpak)
-    # check xfreerdp3 before xfreerdp, some systems have both installed. e.g. SteamOS has outdated xfreerdp, but also has xfreerdp3 installed
+    # Determine availability of all FreeRDP variants and set EXISTS_* flags
+    EXISTS_XFREERDP=false
+    EXISTS_XFREERDP3=false
+    EXISTS_FLATPAK_FREERDP=false
+
     if command -v xfreerdp3 &>/dev/null; then
-        FREERDP_COMMAND="xfreerdp3"
-        return
+        EXISTS_XFREERDP3=true
     fi
+
+    if command -v xfreerdp &>/dev/null; then
+        EXISTS_XFREERDP=true
+    fi
+
     if command -v flatpak &>/dev/null; then
         if flatpak list --columns=application | grep -q "^com.freerdp.FreeRDP$"; then
-            FREERDP_COMMAND="flatpak run --command=xfreerdp com.freerdp.FreeRDP"
-            return
+            EXISTS_FLATPAK_FREERDP=true
         fi
     fi
-    if command -v xfreerdp &>/dev/null; then
+
+    # Set FREERDP_COMMAND to the first available in priority order: xfreerdp3 > flatpak > xfreerdp
+    if [ "$EXISTS_XFREERDP3" = true ]; then
+        FREERDP_COMMAND="xfreerdp3"
+    elif [ "$EXISTS_FLATPAK_FREERDP" = true ]; then
+        FREERDP_COMMAND="flatpak run --command=xfreerdp com.freerdp.FreeRDP"
+    elif [ "$EXISTS_XFREERDP" = true ]; then
         FREERDP_COMMAND="xfreerdp"
-        return
+    else
+        FREERDP_COMMAND="" # Not found
     fi
-    FREERDP_COMMAND="" # Not found
 }
 
 # Function to check if all requirements are met to run the Windows VM in Podman
@@ -235,11 +260,13 @@ function check_requirements() {
 
     # Check minimum RAM (8 GB)
     print_info "Checking minimum RAM"
-    REQUIRED_RAM=7 # 8 GB shows up as 7.6 GB so best to just set the threshold to 7 in this script
+    local ram_line=$((LINENO + 1))
+    REQUIRED_RAM=7 # 8 GB shows up as 7.6 GiB so best to just set the threshold to 7 in this script
     AVAILABLE_RAM="$(free -b | awk '/^Mem:/{print int($2/1024/1024/1024)}')"
     if [ "$AVAILABLE_RAM" -lt "$REQUIRED_RAM" ]; then
         exit_with_error "Insufficient RAM. Required: ${REQUIRED_RAM}GB, Available: ${AVAILABLE_RAM}GB. \
-    Please upgrade your system memory to at least ${REQUIRED_RAM}GB."
+    Please upgrade your system memory to at least ${REQUIRED_RAM}GB.
+    The Windows VM needs 4 GB of RAM. If you still want to continue with the installation, for example if you are using zswap, you can change the minimum RAM required by editing line $ram_line in $SCRIPT_DIR/setup.sh and then run the setup again."
     fi
     print_success "Sufficient RAM detected: ${AVAILABLE_RAM}GB"
 
@@ -925,416 +952,444 @@ function verify_container_health() {
     return 0
 }
 
-function check_available() {
-    if [ -z "$FREERDP_COMMAND" ]; then
-        detect_freerdp_command
+# Update the lines FREERDP_CONFIG="", RDP_FLAGS="", and XWAYLAND="" in linoffice.conf
+function update_config_file() {
+    local conf_file="$LINOFFICE_CONF"
+    if [ ! -f "$LINOFFICE_CONF" ]; then
+        exit_with_error "LinOffice configuration file not found: $LINOFFICE_CONF
+    Please ensure the file exists in the config directory."
     fi
-    print_step "7" "Checking if everything is set up correctly"
-    print_info "Checking if RDP server is available"
-    local max_attempts=10 
-    local reboot_threshold=7
-    local attempt=0
-    local success=0
-    local vm_rebooted=false
     
-    if [ ! -e "$SUCCESS_FILE" ]; then
-        while true; do
-            attempt=0
-            success=0
-            vm_rebooted=false
-            
-            while [ $attempt -lt $max_attempts ]; do
-            attempt=$((attempt + 1))
+    print_info "Updating config file"
+    # Update XWAYLAND line
+    sed -i "/^XWAYLAND=/ s/.*/XWAYLAND=\"${FREERDP_XWAYLAND}\"/" "$conf_file"
+    
+    # Handle RDP_FLAGS: get current value, modify based on conditions, then update line
+    local rdp_flags
+    if grep -q "^RDP_FLAGS=" "$conf_file"; then
+        rdp_flags=$(grep "^RDP_FLAGS=" "$conf_file" | cut -d= -f2- | sed 's/^"//; s/"$//')
+    else
+        rdp_flags=""
+    fi
+    
+    # Remove flags if corresponding var is false
+    if [[ "$FREERDP_NSC" != "true" ]]; then
+        rdp_flags=$(echo "$rdp_flags" | sed 's| /gfx:off /nsc||g; s|^/gfx:off /nsc ||; s| /gfx:off /nsc$||')
+    fi
+    if [[ "$FREERDP_NETWORK_LAN" != "true" ]]; then
+        rdp_flags=$(echo "$rdp_flags" | sed 's| /network:lan||g; s|^/network:lan ||; s| /network:lan$||')
+    fi
+    if [[ "$FREERDP_SEC_RDP" != "true" ]]; then
+        rdp_flags=$(echo "$rdp_flags" | sed 's| /sec:rdp||g; s|^/sec:rdp ||; s| /sec:rdp$||')
+    fi
+    
+    # Add flags if corresponding var is true (trim and add if not already present, but per spec, just add)
+    if [[ "$FREERDP_NSC" == "true" ]]; then
+        if ! echo "$rdp_flags" | grep -q "/gfx:off /nsc"; then
+            rdp_flags="$rdp_flags /gfx:off /nsc"
+        fi
+    fi
+    if [[ "$FREERDP_NETWORK_LAN" == "true" ]]; then
+        if ! echo "$rdp_flags" | grep -q "/network:lan"; then
+            rdp_flags="$rdp_flags /network:lan"
+        fi
+    fi
+    if [[ "$FREERDP_SEC_RDP" == "true" ]]; then
+        if ! echo "$rdp_flags" | grep -q "/sec:rdp"; then
+            rdp_flags="$rdp_flags /sec:rdp"
+        fi
+    fi
+    
+    # Trim leading/trailing spaces and update the line
+    rdp_flags=$(echo "$rdp_flags" | sed 's|^ ||; s| $||')
+    if [[ -n "$rdp_flags" ]]; then
+        sed -i "/^RDP_FLAGS=/ s/.*/RDP_FLAGS=\"$rdp_flags\"/" "$conf_file"
+    else
+        sed -i "/^RDP_FLAGS=/ s/.*/RDP_FLAGS=\"\"/" "$conf_file"
+    fi
+    
+    # Update FREERDP_COMMAND line
+    sed -i "/^FREERDP_COMMAND=/ s/\"[^\"]*\"/\"${FREERDP_COMMAND}\"/" "$conf_file"
+}
 
-            # First verify container is healthy
-            if ! verify_container_health; then
-                print_error "Container health check failed on attempt $attempt"
-                if [ $attempt -ge $max_attempts ]; then
-                    break
-                fi
-                print_info "Waiting 10 seconds before next attempt..."
-                sleep 10
-                continue
-            fi
+function check_available() {
+	if [ -z "$FREERDP_COMMAND" ]; then
+		detect_freerdp_command
+	fi
+	print_step "7" "Checking if everything is set up correctly"
+	print_info "Checking if RDP server is available"
 
-            # Try to check if RDP is ready
-            print_info "Testing RDP connection (attempt $attempt of $max_attempts)..."
-            
-            # First, try the original minimal command (as it works on many systems) before applying variants
-            echo "DEBUG: Using FreeRDP command (minimal): $FREERDP_COMMAND" >> "$LOGFILE"
-            local minimal_output
-            if [[ "$FREERDP_COMMAND" == flatpak* ]]; then
-                minimal_output=$(timeout 30 bash -c "$FREERDP_COMMAND /cert:ignore /u:MyWindowsUser /p:MyWindowsPassword /v:127.0.0.1 /port:3388 /app:program:cmd.exe,cmd:'/c tsdiscon'" 2>&1)
-            else
-                minimal_output=$(timeout 30 "$FREERDP_COMMAND" \
-                    /cert:ignore \
-                    /u:MyWindowsUser \
-                    /p:MyWindowsPassword \
-                    /v:127.0.0.1 \
-                    /port:3388 \
-                    /app:program:cmd.exe,cmd:'/c tsdiscon' \
-                    2>&1)
-            fi
-            local minimal_exit=$?
-            echo "DEBUG: FreeRDP (minimal) output was:" >> "$LOGFILE"
-            echo "$minimal_output" >> "$LOGFILE"
-            echo "DEBUG: FreeRDP (minimal) exit code was: $minimal_exit" >> "$LOGFILE"
+	# Prepare candidate list based on availability
+	local candidates=()
+	if [ "$EXISTS_XFREERDP3" = true ]; then candidates+=("xfreerdp3"); fi
+	if [ "$EXISTS_FLATPAK_FREERDP" = true ]; then candidates+=("flatpak run --command=xfreerdp com.freerdp.FreeRDP"); fi
+	if [ "$EXISTS_XFREERDP" = true ]; then candidates+=("xfreerdp"); fi
 
-            if echo "$minimal_output" | grep -q "ERRINFO_LOGOFF_BY_USER"; then
-                print_success "RDP server is available (user logoff detected)"
-                success=1
-				return 0 # exit the function
-            fi
+	# Helper to run one attempt and detect success
+	_run_attempt() {
+		local cmd_str="$1"; shift
+		local extra_flags=("$@")
+		local output=""
+		local use_xwayland=false
+		local arg_flags=()
+		
+		for f in "${extra_flags[@]}"; do
+			case "$f" in
+				XWAYLAND)
+					use_xwayland=true
+					;;
+				*)
+					arg_flags+=("$f")
+					;;
+			esac
+		done
+		
+		# Build command arguments
+		local cmd_args=(
+			/cert:ignore
+			/u:MyWindowsUser
+			/p:MyWindowsPassword
+			/v:127.0.0.1
+			/port:3388
+			"${arg_flags[@]}"
+			/app:program:cmd.exe,cmd:'/c tsdiscon'
+		)
+		
+		# Execute command based on type
+		if [[ "$cmd_str" == flatpak* ]]; then
+			local full_cmd="$cmd_str"
+			for arg in "${cmd_args[@]}"; do
+				full_cmd="$full_cmd $arg"
+			done
+			print_info "trying command: timeout 30 bash -c '$full_cmd'"
+			
+			if [ "$use_xwayland" = true ]; then
+				output=$(timeout 30 bash -c "WAYLAND_DISPLAY= $full_cmd" 2>&1)
+			else
+				output=$(timeout 30 bash -c "$full_cmd" 2>&1)
+			fi
+		else
+			print_info "trying command: timeout 30 $cmd_str ${cmd_args[*]}"
+			
+			if [ "$use_xwayland" = true ]; then
+				output=$(timeout 30 env WAYLAND_DISPLAY= "$cmd_str" "${cmd_args[@]}" 2>&1)
+			else
+				output=$(timeout 30 "$cmd_str" "${cmd_args[@]}" 2>&1)
+			fi
+		fi
+		
+		# Log everything, print ERROR lines only to terminal
+		echo "$output" >>"$LOGFILE"
+		local error_lines
+		error_lines=$(echo "$output" | grep -F "ERROR" || true)
+		if [ -n "$error_lines" ]; then echo "$error_lines"; fi
+		
+		# Success when user logoff detected
+		if echo "$output" | grep -q "ERRINFO_LOGOFF_BY_USER"; then
+			print_success "RDP server is available (user logoff detected)"
+			print_info "Used command: $cmd_str ${cmd_args[*]}"
+			return 0   
+		fi
+		return 1
+	}
 
-            # Minimal probe: try all three binaries in fixed order regardless of detected default
-            local candidates_minimal=("xfreerdp3" "flatpak run --command=xfreerdp com.freerdp.FreeRDP" "xfreerdp")
-
-            # Function to run a single probe variant (conservative flags) against a specific candidate
-            run_probe_variant() {
-                local candidate="$1"
-                local use_xvfb="$2" # "yes" or "no"
-                local display_backup="$DISPLAY"
-                local xvfb_pid=""
-                local env_prefix="XLIB_SKIP_ARGB_VISUALS=1 LIBGL_ALWAYS_SOFTWARE=1 GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb"
-                local base_args="/cert:ignore /sec:rdp /gdi:sw /bpp:16 /u:MyWindowsUser /p:MyWindowsPassword /v:127.0.0.1 /port:3388 /app:program:cmd.exe,cmd:'/c tsdiscon'"
-
-                # Optional headless X fallback via Xvfb
-                if [ "$use_xvfb" = "yes" ]; then
-                    if command -v Xvfb >/dev/null 2>&1; then
-                        print_info "Using headless X fallback (Xvfb) for probe"
-                        Xvfb :99 -screen 0 1024x768x16 >/dev/null 2>&1 &
-                        xvfb_pid=$!
-                        export DISPLAY=:99
-                    else
-                        echo "DEBUG: Xvfb not available, skipping headless probe" >> "$LOGFILE"
-                    fi
-                fi
-
-                local output=""
-                local exitcode=0
-                echo "DEBUG: Using FreeRDP candidate: $candidate (xvfb=$use_xvfb)" >> "$LOGFILE"
-                if [[ "$candidate" == flatpak* ]]; then
-                    # Run via flatpak with env prefix
-                    output=$(timeout 30 bash -c "$env_prefix $candidate $base_args" 2>&1)
-                    exitcode=$?
-                elif [ "$candidate" = "xfreerdp3" ] || [ "$candidate" = "xfreerdp" ]; then
-                    output=$(timeout 30 env $env_prefix $candidate $base_args 2>&1)
-                    exitcode=$?
-                else
-                    output="Unsupported candidate: $candidate"
-                    exitcode=1
-                fi
-
-                # Restore DISPLAY and cleanup Xvfb
-                if [ -n "$xvfb_pid" ]; then
-                    kill "$xvfb_pid" >/dev/null 2>&1 || true
-                    wait "$xvfb_pid" 2>/dev/null || true
-                    export DISPLAY="$display_backup"
-                fi
-
-                echo "DEBUG: FreeRDP output was:" >> "$LOGFILE"
-                echo "$output" >> "$LOGFILE"
-                echo "DEBUG: FreeRDP exit code was: $exitcode" >> "$LOGFILE"
-
-                # Return via globals
-                FREERDP_LAST_OUTPUT="$output"
-                FREERDP_LAST_EXIT="$exitcode"
-            }
-
-            # Try minimal probe with all three candidates
-            if [ $success -ne 1 ]; then
-                for candidate in "${candidates_minimal[@]}"; do
-                    # Skip if candidate is not available on system
-                    if [[ "$candidate" == flatpak* ]]; then
-                        if ! command -v flatpak >/dev/null 2>&1 || ! flatpak list --columns=application | grep -q "^com.freerdp.FreeRDP$"; then
-                            continue
-                        fi
-                    else
-                        if ! command -v "$candidate" >/dev/null 2>&1; then
-                            continue
-                        fi
-                    fi
-                    echo "DEBUG: Trying minimal probe with candidate: $candidate" >> "$LOGFILE"
-                    local cand_output
-                    if [[ "$candidate" == flatpak* ]]; then
-                        cand_output=$(timeout 30 bash -c "$candidate /cert:ignore /u:MyWindowsUser /p:MyWindowsPassword /v:127.0.0.1 /port:3388 /app:program:cmd.exe,cmd:'/c tsdiscon'" 2>&1)
-                    else
-                        cand_output=$(timeout 30 $candidate \
-                            /cert:ignore \
-                            /u:MyWindowsUser \
-                            /p:MyWindowsPassword \
-                            /v:127.0.0.1 \
-                            /port:3388 \
-                            /app:program:cmd.exe,cmd:'/c tsdiscon' \
-                            2>&1)
-                    fi
-                    local cand_exit=$?
-                    echo "DEBUG: FreeRDP (minimal candidate) output was:" >> "$LOGFILE"
-                    echo "$cand_output" >> "$LOGFILE"
-                    echo "DEBUG: FreeRDP (minimal candidate) exit code was: $cand_exit" >> "$LOGFILE"
-                    if echo "$cand_output" | grep -q "ERRINFO_LOGOFF_BY_USER"; then
-                        print_success "RDP server is available (user logoff detected)"
-						FREERDP_COMMAND="$candidate"
-                        success=1
-						return 0 # exit the function
-                    fi
-                done
-            fi
-
-            # If minimal did not succeed, try conservative variant with the originally detected command only
-            if [ $success -ne 1 ]; then
-                run_probe_variant "$FREERDP_COMMAND" "no"
-                local freerdp_output="$FREERDP_LAST_OUTPUT"
-                if echo "$freerdp_output" | grep -q "ERRINFO_LOGOFF_BY_USER"; then
-                    print_success "RDP server is available (user logoff detected)"
-                    success=1
-					return 0 # exit the function
-                fi
-            fi
-
-            # If still not successful, do a single headless attempt with the originally detected command
-            if [ $success -ne 1 ]; then
-                run_probe_variant "$FREERDP_COMMAND" "yes"
-                local freerdp_output="$FREERDP_LAST_OUTPUT"
-                if echo "$freerdp_output" | grep -q "ERRINFO_LOGOFF_BY_USER"; then
-                    print_success "RDP server is available (headless probe)"
-                    success=1
-					return 0 # exit the function
-                fi
-            fi
-
-			# Break out of outer loop (while true) on success
-			if [ $success -eq 1 ]; then
-				print_success "RDP server is available"
+	# Helper to run full test sequence
+	_run_test_sequence() {
+		local c
+		
+		# 1) Minimal command with detected FREERDP_COMMAND
+		if [ -n "$FREERDP_COMMAND" ]; then
+			if _run_attempt "$FREERDP_COMMAND"; then
 				return 0
 			fi
+		fi
 
-            # If we've reached the reboot threshold and haven't rebooted yet, reboot the VM
-            if [ $attempt -eq $reboot_threshold ] && [ "$vm_rebooted" = false ]; then
-                print_info "Reached $reboot_threshold failed attempts. Rebooting Windows VM to restart Office installation..."
-                vm_rebooted=true
-                
-                # Reboot the Windows VM using the existing reset functionality
-                print_info "Rebooting Windows VM..."
-                "$COMPOSE_COMMAND" --file "$COMPOSE_FILE" restart >>"$LOGFILE" 2>&1
-                
-                # Wait for container to restart
-                local max_wait_time=120
-                local wait_elapsed=0
-                local check_interval=5
-                
-                print_info "Waiting for Windows VM to restart..."
-                while [ $wait_elapsed -lt $max_wait_time ]; do
-                    if timeout 1 bash -c ">/dev/tcp/127.0.0.1/3388" 2>/dev/null; then
-                        print_success "Windows VM restarted successfully"
-                        break
-                    fi
-                    sleep $check_interval
-                    wait_elapsed=$((wait_elapsed + check_interval))
-                    if [ $((wait_elapsed % 30)) -eq 0 ]; then
-                        print_info "Still waiting for Windows VM to restart... ($((wait_elapsed/60)) minutes elapsed)"
-                    fi
-                done
-                
-                if [ $wait_elapsed -ge $max_wait_time ]; then
-                    print_error "Timeout waiting for Windows VM to restart. Please check the container status."
-                    return 1
-                fi
-                
-                # Wait a bit more for Windows to fully boot
-                print_info "Waiting for Windows to fully boot..."
-                sleep 30
-                
-                # Now run the Office installation command
-                print_info "Restarting Office installation after VM reboot..."
-                echo "DEBUG: Running Office installation after VM reboot" >> "$LOGFILE"
-                
-                "$FREERDP_COMMAND" \
-                    /cert:ignore \
-                    +home-drive \
-                    /u:MyWindowsUser \
-                    /p:MyWindowsPassword \
-                    /v:127.0.0.1 \
-                    /port:3388 \
-                    /app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\InstallOffice.ps1' \
-                    >>"$LOGFILE" 2>&1 &
-                
-                print_info "Office installation command sent. Continuing with RDP connection attempts..."
-            fi
+		# 2) Minimal command with all available candidates
+		for c in "${candidates[@]}"; do
+			if _run_attempt "$c"; then
+				FREERDP_COMMAND="$c"
+				update_config_file
+				return 0
+			fi
+		done
 
-            # If unable to connect, try again
-            if [ $attempt -lt $max_attempts ]; then
-                print_info "RDP server not ready yet, waiting 5 seconds..."
-                sleep 5
-            fi
-            
-            if [ $success -eq 1 ]; then
-                print_success "RDP server is available"
-                return 0
-            fi
+		# Utility: are we on Wayland?
+		local on_wayland=false
+		if [ "$XDG_SESSION_TYPE" = "wayland" ] || [ -n "$WAYLAND_DISPLAY" ]; then 
+			on_wayland=true
+		fi
 
-            # At this point we failed after max_attempts. Provide beginner-friendly guidance and offer retry.
-            print_error "Failed to connect to the Windows VM via RDP after $max_attempts attempts."
-            echo
-            print_info "What to do now:"
-            print_info "1) Open your web browser and go to: 127.0.0.1:8006"
-            print_info "2) You will see the virtual machine. Log in using the password: MyWindowsPassword"
-            print_info "3) In Windows, click Start (Windows logo), then click on 'MyWindowsUser' at the bottom-left, then click 'Sign out'."
-            print_info "   Important: Do NOT shut down or restart the virtual machine. Just sign out."
-            echo
-            print_info "After signing out, we can try the connection again."
-            echo
-            # Machine-readable marker so the GUI can show a dialog and answer the prompt
-            echo "PROMPT:VNC_SIGN_OUT_AND_RETRY"
-            # Interactive prompt for terminal users
-            local answer
-            read -r -p "Try again now? [Y/n]: " answer
-            answer=${answer:-Y}
-            if [[ "$answer" =~ ^[Yy]$ ]]; then
-                print_info "Okay, trying again..."
-                continue
-            else
-                print_error "User chose not to retry RDP connection."
-                return 1
-            fi
-        done
-        done
-    else
-        print_success "Success file already exists"
-        return 0
-    fi
+		# 3) Xwayland variant (Wayland sessions only)
+		if [ "$on_wayland" = true ]; then
+			for c in "${candidates[@]}"; do
+				if _run_attempt "$c" "XWAYLAND"; then
+					FREERDP_COMMAND="$c"
+					FREERDP_XWAYLAND=true
+					update_config_file
+					return 0
+				fi
+			done
+		fi
+
+		# 4) /sec:rdp variant
+		for c in "${candidates[@]}"; do
+			if _run_attempt "$c" "/sec:rdp"; then
+				FREERDP_COMMAND="$c"
+				FREERDP_SEC_RDP=true
+				update_config_file
+				return 0
+			fi
+		done
+
+		# 5) /network:lan variant
+		for c in "${candidates[@]}"; do
+			if _run_attempt "$c" "/network:lan"; then
+				FREERDP_COMMAND="$c"
+				FREERDP_NETWORK_LAN=true
+				update_config_file
+				return 0
+			fi
+		done
+
+		# 6) /nsc variant
+		for c in "${candidates[@]}"; do
+			if _run_attempt "$c" "/gfx:off /nsc"; then
+				FREERDP_COMMAND="$c"
+				FREERDP_NSC=true
+				update_config_file
+				return 0
+			fi
+		done
+
+		# 7) All together (xwayland, /sec:rdp, /network:lan, /gfx:off /nsc)
+		if [ "$on_wayland" = true ]; then
+			for c in "${candidates[@]}"; do
+				if _run_attempt "$c" "XWAYLAND" "/sec:rdp" "/network:lan" "/gfx:off /nsc"; then
+					FREERDP_COMMAND="$c"
+					FREERDP_XWAYLAND=true
+					FREERDP_SEC_RDP=true
+					FREERDP_NETWORK_LAN=true
+					FREERDP_NSC=true
+					update_config_file
+					return 0
+				fi
+			done
+		else
+			for c in "${candidates[@]}"; do
+				if _run_attempt "$c" "/sec:rdp" "/network:lan" "/gfx:off /nsc"; then
+					FREERDP_COMMAND="$c"
+					FREERDP_SEC_RDP=true
+					FREERDP_NETWORK_LAN=true
+					FREERDP_NSC=true
+					update_config_file
+					return 0
+				fi
+			done
+		fi
+
+		return 1
+	}
+
+	# Ensure container is up before testing
+	if ! verify_container_health; then
+		print_error "Container is not healthy; cannot perform RDP checks."
+		return 1
+	fi
+
+	# Run initial test sequence
+	if _run_test_sequence; then
+		update_config_file
+		return 0
+	fi
+
+	# 8) Reboot container and retry
+	print_info "Rebooting Windows VM container and retrying checks..."
+	"$COMPOSE_COMMAND" --file "$COMPOSE_FILE" restart >>"$LOGFILE" 2>&1 || true
+	sleep 10
+	
+	if ! verify_container_health; then
+		print_error "Problem with container after reboot."
+	else
+		if _run_test_sequence; then
+			update_config_file
+			return 0
+		fi
+	fi
+
+	# 9) Prompt user to log out via VNC and retry once
+	print_error "Unable to connect via RDP automatically."
+	echo
+	print_info "What to do now:"
+	print_info "1) Open your browser to 127.0.0.1:8006"
+	print_info "2) Login with password: MyWindowsPassword"
+	print_info "3) In Windows, sign out the user (do not shutdown)."
+	echo
+	echo "PROMPT:VNC_SIGN_OUT_AND_RETRY"
+	local answer
+	read -r -p "Try again now? [Y/n]: " answer
+	answer=${answer:-Y}
+	
+	if [[ "$answer" =~ ^[Yy]$ ]]; then
+		if _run_test_sequence; then
+			update_config_file
+			return 0
+		fi
+	fi
+
+	return 1
 }
 
 function check_success() {
-    if [ -z "$FREERDP_COMMAND" ]; then
-        detect_freerdp_command
-    fi
-    print_info "Checking if Office is installed"
+	if [ -z "$FREERDP_COMMAND" ]; then
+		detect_freerdp_command
+	fi
+	print_info "Checking if Office is installed"
 
-    local freerdp_pid=""
-    local elapsed_time=0
-    local retry_count=0
-    local max_retries=10
-    # Keep connection alive for the whole installation monitoring period; do not kill early
-    # local connection_timeout=60
-    local check_interval=10  # Try again after 10 seconds
-    local installation_timeout=1800 # 30 minutes timeout for Office download and installation
-    
-    # Function to cleanup FreeRDP process
-    cleanup_freerdp() {
-        if [ -n "$freerdp_pid" ] && kill -0 "$freerdp_pid" 2>/dev/null; then
-            print_info "Cleaning up FreeRDP process (PID: $freerdp_pid)"
-            kill -TERM "$freerdp_pid" 2>/dev/null || true
-            sleep 3
-            kill -KILL "$freerdp_pid" 2>/dev/null || true
-        fi
-    }
+	local freerdp_pid=""
+	local elapsed_time=0
+	local retry_count=0
+	local max_retries=10
+	local check_interval=10  # Try again after 10 seconds
+	local installation_timeout=900 # 15 minutes timeout for Office download and installation
+	
+	# Function to cleanup FreeRDP process
+	cleanup_freerdp() {
+		if [ -n "$freerdp_pid" ] && kill -0 "$freerdp_pid" 2>/dev/null; then
+			print_info "Cleaning up FreeRDP process (PID: $freerdp_pid)"
+			kill -TERM "$freerdp_pid" 2>/dev/null || true
+			sleep 3
+			kill -KILL "$freerdp_pid" 2>/dev/null || true
+		fi
+	}
 
-    # Register cleanup function to run on script exit
-    trap cleanup_freerdp EXIT
+	# Register cleanup function to run on script exit
+	trap cleanup_freerdp EXIT
 
-    # Clear any existing success file once before attempting connections
-    rm -f "$SUCCESS_FILE"
+	# Clear any existing success file once before attempting connections
+	rm -f "$SUCCESS_FILE"
 
-    # Retry loop for FreeRDP connection
-    while [ $retry_count -lt $max_retries ]; do
-        retry_count=$((retry_count + 1))
-        print_info "Starting FreeRDP connection to mount home directory (Attempt $retry_count of $max_retries)..."
-        
-        # Start FreeRDP in the background with home-drive enabled
-        if [[ "$FREERDP_COMMAND" == flatpak* ]]; then
-            bash -c "$FREERDP_COMMAND /cert:ignore +home-drive /u:MyWindowsUser /p:MyWindowsPassword /v:127.0.0.1 /port:3388 /app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\FirstRDPRun.ps1'" >>"$LOGFILE" 2>&1 &
-        else
-            "$FREERDP_COMMAND" \
-                /cert:ignore \
-                +home-drive \
-                /u:MyWindowsUser \
-                /p:MyWindowsPassword \
-                /v:127.0.0.1 \
-                /port:3388 \
-                /app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\FirstRDPRun.ps1' \
-                >>"$LOGFILE" 2>&1 &
-        fi
-        
-        freerdp_pid=$!
-        
-        # Wait briefly and check if FreeRDP started successfully
-        sleep 5
-        if kill -0 "$freerdp_pid" 2>/dev/null; then
-            print_success "FreeRDP connection established successfully (PID: $freerdp_pid)"
-            break
-        else
-            wait $freerdp_pid 2>/dev/null
-            local exit_code=$?
-            print_error "FreeRDP failed to start or exited immediately (exit code: $exit_code)"
-            
-            if [ $retry_count -lt $max_retries ]; then
-                print_info "Retrying in 10 seconds..."
-                sleep 10
-            else
-                print_error "Max retries ($max_retries) reached. Check log file at $LOGFILE for details."
-                return 1
-            fi
-        fi
-    done
+	# Build command arguments based on successful availability check
+	local cmd_args=(
+		/cert:ignore
+		+home-drive
+		/u:MyWindowsUser
+		/p:MyWindowsPassword
+		/v:127.0.0.1
+		/port:3388
+	)
+	
+	# Add flags from successful connection test
+	if [ "$FREERDP_SEC_RDP" = true ]; then
+		cmd_args+=("/sec:rdp")
+	fi
+	if [ "$FREERDP_NETWORK_LAN" = true ]; then
+		cmd_args+=("/network:lan")
+	fi
+	cmd_args+=(/app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\FirstRDPRun.ps1')
 
-    # Reset elapsed time for installation monitoring
-    elapsed_time=0
-    local last_check_time=$(date +%s)
-    
-    print_info "Waiting for Office installation to complete (timeout: $((installation_timeout/60)) minutes)..."
-    
-    # Monitor for success file creation
-    while [ $elapsed_time -lt $installation_timeout ]; do
-        # Check if success file exists
-        if [ -f "$SUCCESS_FILE" ]; then
-            print_success "Success file detected - Office installation is complete!"
-            cleanup_freerdp
-            return 0
-        fi
+	# Retry loop for FreeRDP connection
+	while [ $retry_count -lt $max_retries ]; do
+		retry_count=$((retry_count + 1))
+		print_info "Starting FreeRDP connection to mount home directory (Attempt $retry_count of $max_retries)..."
+		
+		# Start FreeRDP in the background with home-drive enabled
+		if [[ "$FREERDP_COMMAND" == flatpak* ]]; then
+			local full_cmd="$FREERDP_COMMAND"
+			for arg in "${cmd_args[@]}"; do
+				full_cmd="$full_cmd $arg"
+			done
+			
+			if [ "$FREERDP_XWAYLAND" = true ]; then
+				bash -c "WAYLAND_DISPLAY= $full_cmd" >>"$LOGFILE" 2>&1 &
+			else
+				bash -c "$full_cmd" >>"$LOGFILE" 2>&1 &
+			fi
+		else
+			if [ "$FREERDP_XWAYLAND" = true ]; then
+				env WAYLAND_DISPLAY= "$FREERDP_COMMAND" "${cmd_args[@]}" >>"$LOGFILE" 2>&1 &
+			else
+				"$FREERDP_COMMAND" "${cmd_args[@]}" >>"$LOGFILE" 2>&1 &
+			fi
+		fi
+		
+		freerdp_pid=$!
+		
+		# Wait briefly and check if FreeRDP started successfully
+		sleep 5
+		if kill -0 "$freerdp_pid" 2>/dev/null; then
+			print_success "FreeRDP connection established successfully (PID: $freerdp_pid)"
+			break
+		else
+			wait $freerdp_pid 2>/dev/null
+			local exit_code=$?
+			print_error "FreeRDP failed to start or exited immediately (exit code: $exit_code)"
+			
+			if [ $retry_count -lt $max_retries ]; then
+				print_info "Retrying in 10 seconds..."
+				sleep 10
+			else
+				print_error "Max retries ($max_retries) reached. Check log file at $LOGFILE for details."
+				return 1
+			fi
+		fi
+	done
 
-        # Check if FreeRDP process is still running
-        if ! kill -0 "$freerdp_pid" 2>/dev/null; then
-            wait $freerdp_pid 2>/dev/null
-            local exit_code=$?
-            
-            # Check if success file was created before process ended
-            if [ -f "$SUCCESS_FILE" ]; then
-                print_success "Success file detected - Office installation is complete!"
-                return 0
-            fi
-            
-            print_error "FreeRDP connection terminated (exit code: $exit_code)"
-            print_info "Checking if success file was created..."
-            
-            sleep 2
-            if [ -f "$SUCCESS_FILE" ]; then
-                print_success "Success file found - Office installation completed successfully!"
-                return 0
-            else
-                print_error "Success file not found. Installation may have failed."
-                print_info "Check log file at $LOGFILE for details"
-                return 1
-            fi
-        fi
+	# Reset elapsed time for installation monitoring
+	elapsed_time=0
+	
+	print_info "Waiting for Office installation to complete (timeout: $((installation_timeout/60)) minutes)..."
+	
+	# Monitor for success file creation
+	while [ $elapsed_time -lt $installation_timeout ]; do
+		# Check if success file exists
+		if [ -f "$SUCCESS_FILE" ]; then
+			print_success "Success file detected - Office installation is complete!"
+			cleanup_freerdp
+			return 0
+		fi
 
-        sleep $check_interval
-        elapsed_time=$((elapsed_time + check_interval))
-    done
+		# Check if FreeRDP process is still running
+		if ! kill -0 "$freerdp_pid" 2>/dev/null; then
+			wait $freerdp_pid 2>/dev/null
+			local exit_code=$?
+			
+			# Check if success file was created before process ended
+			if [ -f "$SUCCESS_FILE" ]; then
+				print_success "Success file detected - Office installation is complete!"
+				return 0
+			fi
+			
+			print_error "FreeRDP connection terminated (exit code: $exit_code)"
+			print_info "Checking if success file was created..."
+			
+			sleep 2
+			if [ -f "$SUCCESS_FILE" ]; then
+				print_success "Success file found - Office installation completed successfully!"
+				return 0
+			else
+				print_error "Success file not found. Installation may have failed."
+				print_info "Check log file at $LOGFILE for details"
+				return 1
+			fi
+		fi
 
-    # Timeout reached
-    print_error "Timeout waiting for Office installation to complete after $((installation_timeout / 60)) minutes"
-    print_info "Check log file at $LOGFILE for details"
-    
-    # Final check for success file
-    if [ -f "$SUCCESS_FILE" ]; then
-        print_success "Success file found during cleanup - Office installation completed!"
-        cleanup_freerdp
-        return 0
-    fi
-    
-    cleanup_freerdp
-    return 1
+		sleep $check_interval
+		elapsed_time=$((elapsed_time + check_interval))
+	done
+
+	# Timeout reached
+	print_error "Timeout waiting for Office installation to complete after $((installation_timeout / 60)) minutes"
+	print_info "Check log file at $LOGFILE for details"
+	
+	# Final check for success file
+	if [ -f "$SUCCESS_FILE" ]; then
+		print_success "Success file found during cleanup - Office installation completed!"
+		cleanup_freerdp
+		return 0
+	fi
+	
+	cleanup_freerdp
+	return 1
 }
 
 function desktop_files() {
@@ -1434,35 +1489,53 @@ function desktop_files() {
 }
 
 # Function to run InstallOffice.ps1 via FreeRDP
-run_install_office_ps1() {
+try_install_office() {
     if [ -z "$FREERDP_COMMAND" ]; then
         detect_freerdp_command
     fi
 
     print_info "Running Office installation script via FreeRDP..."
 
-    # Build FreeRDP command wrapper (handles flatpak vs system install)
-    local freerdp_cmd
-    if [[ "$FREERDP_COMMAND" == flatpak* ]]; then
-        freerdp_cmd=(bash -c "$FREERDP_COMMAND")
-    else
-        freerdp_cmd=("$FREERDP_COMMAND")
-    fi
-
     # Connection timeout in milliseconds (e.g. 10000 = 10 seconds)
     local connection_timeout=10000
 
-    # Run FreeRDP with connection timeout only (script keeps running after connect)
-    "${freerdp_cmd[@]}" \
-        /cert:ignore \
-        +home-drive \
-        /u:MyWindowsUser \
-        /p:MyWindowsPassword \
-        /v:127.0.0.1 \
-        /port:3388 \
-        /timeout:$connection_timeout \
-        /app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\InstallOffice.ps1' \
-        >>"$LOGFILE" 2>&1
+    # Build command arguments
+    local cmd_args=(
+        /cert:ignore
+        +home-drive
+        /u:MyWindowsUser
+        /p:MyWindowsPassword
+        /v:127.0.0.1
+        /port:3388
+        /timeout:$connection_timeout
+        /app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\InstallOffice.ps1'
+    )
+
+    # Add flags from successful connection test
+    if [ "$FREERDP_SEC_RDP" = true ]; then
+        cmd_args+=("/sec:rdp")
+    fi
+    if [ "$FREERDP_NETWORK_LAN" = true ]; then
+        cmd_args+=("/network:lan")
+    fi
+
+    # Run FreeRDP (handle flatpak vs system binary, Xwayland if needed)
+    if [[ "$FREERDP_COMMAND" == flatpak* ]]; then
+        local full_cmd=("$FREERDP_COMMAND" "${cmd_args[@]}")
+        if [ "$FREERDP_XWAYLAND" = true ]; then
+            print_info "Running via Flatpak with Xwayland disabled (forcing X11 fallback)"
+            bash -c "WAYLAND_DISPLAY= ${full_cmd[*]}" >>"$LOGFILE" 2>&1
+        else
+            bash -c "${full_cmd[*]}" >>"$LOGFILE" 2>&1
+        fi
+    else
+        if [ "$FREERDP_XWAYLAND" = true ]; then
+            print_info "Running system FreeRDP with Xwayland disabled (forcing X11 fallback)"
+            env WAYLAND_DISPLAY= "$FREERDP_COMMAND" "${cmd_args[@]}" >>"$LOGFILE" 2>&1
+        else
+            "$FREERDP_COMMAND" "${cmd_args[@]}" >>"$LOGFILE" 2>&1
+        fi
+    fi
 
     local exit_code=$?
     if [ $exit_code -eq 0 ]; then
@@ -1494,7 +1567,7 @@ init_progress_file
 # If --installoffice flag is set, only run InstallOffice.ps1 via FreeRDP
 if [ "$INSTALL_OFFICE_ONLY" = true ]; then
     print_info "Running InstallOffice.ps1 via FreeRDP (--installoffice mode)..."
-    if run_install_office_ps1; then
+    if try_install_office; then
         print_success "Office installation script executed successfully!"
     else
         exit_with_error "Failed to run Office installation script via FreeRDP."
