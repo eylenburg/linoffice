@@ -14,6 +14,14 @@ Write-Log "Starting InstallOffice.ps1"
 Start-Sleep -Seconds 30
 Write-Log "Waiting a bit to make sure the system is ready"
 
+# Disable AutoLogon that was set up by install.bat
+Write-Log "Disabling AutoLogon"
+Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "AutoAdminLogon" -Value "0" -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "DefaultUserName" -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "DefaultPassword" -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "AutoLogonCount" -ErrorAction SilentlyContinue
+Write-Log "Disabled AutoLogon in registry"
+
 # Check if MS Office is already installed
 Write-Log "Checking if MS Office is already installed"
 if (Test-Path "C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE") {
@@ -78,46 +86,84 @@ if (Test-Path $setupPath) {
 # Execute setup.exe with OfficeConfiguration.xml
 Write-Log "Running Office installation..."
 try {
-    $process = Start-Process -FilePath $setupPath -ArgumentList "/configure C:\OEM\OfficeConfiguration.xml" -Wait -NoNewWindow -PassThru
+    $process = Start-Process -FilePath $setupPath -ArgumentList "/configure C:\OEM\OfficeConfiguration.xml" -NoNewWindow -PassThru
+    Write-Log "setup.exe process started with PID: $($process.Id)"
+    
+    # Check for EXCEL.EXE periodically
+    Write-Log "Starting periodic check for EXCEL.EXE..."
+    $installSuccess = $false
+    $successFileCreated = $false
+    $successFileTime = $null
+    $excelPath = "C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE"
+    
+    while (-not $process.HasExited) {
+        # Check for EXCEL.EXE every 10 seconds
+        Start-Sleep -Seconds 10
+        
+        if (-not $installSuccess -and (Test-Path $excelPath)) {
+            Write-Log "EXCEL.EXE found. Office installation successful."
+            $installSuccess = $true
+            
+            # Create success file
+            Write-Log "Creating success file..."
+            try {
+                New-Item -Path "C:\OEM\success" -ItemType File -Force | Out-Null
+                Write-Log "Success file created."
+                $successFileCreated = $true
+                $successFileTime = Get-Date
+            } catch {
+                Write-Log "Failed to create success file."
+            }
+        }
+        
+        # If success file was created, check if 5 minutes have passed
+        if ($successFileCreated) {
+            $elapsedTime = (Get-Date) - $successFileTime
+            if ($elapsedTime.TotalMinutes -ge 5) {
+                Write-Log "5 minutes elapsed since excel.exe was found and success file was created. We will assume that the Office installation is finished even though the setup.exe process is still running. Termating setup.exe and restarting..."
+                $process.Kill()
+                $process.WaitForExit()
+                Write-Log "setup.exe terminated. Restarting computer..."
+                Restart-Computer -Force
+                return
+            }
+        }
+    }
+    
+    # setup.exe has exited
     Write-Log "setup.exe process completed with exit code: $($process.ExitCode)"
+    
+    # Final check if Excel wasn't found during the loop
+    if (-not $installSuccess) {
+        Write-Log "Performing final check for EXCEL.EXE..."
+        if (Test-Path $excelPath) {
+            Write-Log "EXCEL.EXE found. Office installation successful."
+            $installSuccess = $true
+            
+            # Create success file
+            Write-Log "Creating success file..."
+            try {
+                New-Item -Path "C:\OEM\success" -ItemType File -Force | Out-Null
+                Write-Log "Success file created."
+                $successFileCreated = $true
+            } catch {
+                Write-Log "Failed to create success file."
+            }
+        } else {
+            Write-Log "EXCEL.EXE not found. Office installation failed."
+        }
+    }
+    
+    # Restart computer
+    if ($installSuccess) {
+        Write-Log "Installation completed successfully. Restarting computer..."
+    } else {
+        Write-Log "Installation failed. Restarting computer anyway..."
+    }
+    Restart-Computer -Force
+    
 } catch {
     Write-Log "Error running setup.exe: $_"
+    Restart-Computer -Force
 }
-
-# Check for EXCEL.EXE to confirm installation
-Write-Log "Checking for EXCEL.EXE..."
-$installSuccess = $false
-if (Test-Path "C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE") {
-    Write-Log "EXCEL.EXE found. Office installation successful."
-    $installSuccess = $true
-} else {
-    Write-Log "EXCEL.EXE not found. Office installation failed."
-}
-
-# Create success file
-Write-Log "Creating success file..."
-if ($installSuccess) {
-    try {
-        New-Item -Path "C:\OEM\success" -ItemType File -Force | Out-Null
-        Write-Log "Success file created."
-    } catch {
-        Write-Log "Failed to create success file."
-    }
-} else {
-    Write-Log "Skipping success file creation due to installation failure."
-}
-
-# Disable AutoLogon that was set up by install.bat
-Write-Log "Disabling AutoLogon"
-Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "AutoAdminLogon" -Value "0" -ErrorAction SilentlyContinue
-Remove-ItemProperty -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "DefaultUserName" -ErrorAction SilentlyContinue
-Remove-ItemProperty -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "DefaultPassword" -ErrorAction SilentlyContinue
-Remove-ItemProperty -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "AutoLogonCount" -ErrorAction SilentlyContinue
-
-Write-Log "Disabled AutoLogon in registry"
-Write-Log "InstallOffice.ps1 completed, will reboot now"
-
-# Initiate final reboot
-Write-Log "Initiating final reboot"
-Restart-Computer -Force
 
