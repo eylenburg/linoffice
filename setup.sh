@@ -1353,7 +1353,7 @@ function desktop_files() {
     fi
 
     # List of Office apps
-    local apps=("excel" "word" "powerpoint" "onenote" "outlook", "linoffice")
+    local apps=("excel" "word" "powerpoint" "onenote" "outlook" "linoffice")
     local INSTALLED_COUNT=0
 
     print_info "Processing .desktop files..."
