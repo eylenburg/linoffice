@@ -32,6 +32,7 @@ Windows Registry Editor Version 5.00
     "ScheduledInstallTime"=dword:00000003
     "AutoInstallMinorUpdates"=dword:00000001
     "IncludeRecommendedUpdates"=dword:00000001
+    "NoAutoRebootWithLoggedOnUsers"=dword:00000001
 
     ; Allow long file paths
     [HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\FileSystem]
