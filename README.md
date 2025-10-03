@@ -240,7 +240,7 @@ If there is still a problem in the setup, even though you have just confirmed th
 Now you should be able to find the "Linoffice" GUI as well as the starters for Word, Excel etc. in your Linux menu.
 
 If you still can't get the setup to work, please [create a bug report ("setup didn't work")](https://github.com/eylenburg/linoffice/issues) with these information:
-- The `windows_install.log` (in `~/.local/share/linoffice`)
+- The `windows_install.log` and `setup_output.log` (in `~/.local/share/linoffice`)
 - The `setup.log`, `setup_office.log`, and `setup_rdp.log` (if they exist) in `C:\OEM` in the Windows VM (if you can only access the VM through the browser/VNC, there is no clipboard sharing with Linux, so a screenshot is fine)
 - Your system information (LinOffice version, Linux distribution, desktop environment, Wayland or X11, how did you install podman, podman-compose and freerdp?)
 
