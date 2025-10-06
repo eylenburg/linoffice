@@ -581,16 +581,63 @@ function check_requirements() {
     fi
     print_success "subUID/subGID mappings verified."
     
-    # Check Podman storage configuration and whether overlay storage driver is used, as some users had problems here
-    print_info "Checking Podman storage configuration"
-    if ! podman info --format '{{.Store.GraphDriverName}}' 2>/dev/null | grep -q "overlay"; then
-        exit_with_error "Podman is not using overlay storage driver or there's a configuration issue.
-        
-        HOW TO FIX:
-        1. Check Podman storage configuration: podman info
-        2. Try resetting Podman: podman system reset (WARNING: This removes all containers and images)
-        3. Check if /run/containers directory exists and is writable"
-    fi
+	# Check Podman storage configuration and whether overlay storage driver is used, as some users had problems here
+	print_info "Checking Podman storage configuration"
+	driver=$(podman info --format '{{.Store.GraphDriverName}}' 2>/dev/null)
+	error_msg="Podman is not using overlay storage driver or there's a configuration issue.
+	HOW TO FIX:
+	
+	    mkdir -p ~/.config/containers
+	
+	    cat > ~/.config/containers/storage.conf <<EOF
+	[storage]
+	driver = \"overlay\"
+	runroot = \"/run/user/\$(id -u)/containers\"
+	graphroot = \"\$HOME/.local/share/containers/storage\"
+	EOF
+	
+	    podman system migrate
+	
+	Then verify with:
+	    podman info --format '{{.Store.GraphDriverName}}'
+	Expected: overlay"
+	
+	if ! echo "$driver" | grep -qE "overlay|btrfs"; then
+	    if [ -z "$driver" ]; then
+	        print_info "Podman storage driver is not set. Setting up with overlay storage driver"
+	        mkdir -p ~/.config/containers
+	        cat > ~/.config/containers/storage.conf <<-EOF
+	            [storage]
+	            driver = "overlay"
+	            runroot = "/run/user/\$(id -u)/containers"
+	            graphroot = "\$HOME/.local/share/containers/storage"
+	        EOF
+	
+	        # Check running containers before migrate
+	        running_containers=$(podman ps --format '{{.Names}}' 2>/dev/null)
+	        if [ -n "$running_containers" ] && ! [[ "$running_containers" == "LinOffice" ]]; then
+	            # Multiple or non-LinOffice: Prompt user
+				echo "PROMPT:PODMAN_MIGRATE"
+	            while true; do
+	                read -p "WARNING: podman system migrate will stop ALL running containers and reconfigure storage. This may disrupt other workloads. Continue? (y/n): " -n 1 -r
+	                echo
+	                if [[ $REPLY =~ ^[Yy]$ ]]; then
+	                    break
+	                elif [[ $REPLY =~ ^[Nn]$ ]] || [ -z "$REPLY" ]; then
+	                    exit_with_error "Setup aborted by user. Please run the script again when ready to migrate."
+	                fi
+	            done
+	        fi
+	
+	        podman system migrate
+	        new_driver=$(podman info --format '{{.Store.GraphDriverName}}' 2>/dev/null)
+	        if ! echo "$new_driver" | grep -qE "overlay|btrfs"; then
+	            exit_with_error "$error_msg"
+	        fi
+	    else
+	        exit_with_error "$error_msg"
+	    fi
+	fi
     
     # Determine if running rootless or rootful
     if podman info --format '{{.Host.Security.Rootless}}' | grep -q true; then
