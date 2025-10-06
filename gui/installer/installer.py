@@ -169,7 +169,11 @@ class Wizard(QWidget):
             if clean_line.startswith("ERROR:"):
                 self.last_error_line = clean_line
 
-            # Detect retry prompt marker from setup.sh and show GUI dialog
+            # Detect podman migrate  prompt marker from setup.sh and show GUI dialog
+            if "PROMPT:PODMAN_MIGRATE" in clean_line:
+                self.show_podman_migrate_dialog()
+            
+            # Detect VNC retry prompt marker from setup.sh and show GUI dialog
             if "PROMPT:VNC_SIGN_OUT_AND_RETRY" in clean_line:
                 self.show_vnc_retry_dialog()
 
@@ -208,6 +212,7 @@ class Wizard(QWidget):
         else:
             self.show_failure_dialog()
 
+    
     def show_failure_dialog(self):
         error_text = self.last_error_line or "Unknown error"
 
@@ -251,6 +256,47 @@ class Wizard(QWidget):
 
         dialog.exec()
 
+    def show_podman_migrate_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Podman Storage Driver Migration")
+
+        layout = QVBoxLayout(dialog)
+        label = QLabel("""
+<b>All running Podman containers will need to be stopped in order to migrate to the overlay storage driver. <br />
+If you press OK, the command 'podman system migrate' will be run.</b>
+        """)
+        label.setWordWrap(True)
+        layout.addWidget(label)
+
+        button_layout = QHBoxLayout()
+        ok_btn = QPushButton("OK")
+        cancel_btn = QPushButton("Cancel")
+        button_layout.addWidget(ok_btn)
+        button_layout.addWidget(cancel_btn)
+        layout.addLayout(button_layout)
+
+        def migrate_ok():
+            dialog.accept()
+            if self.process and self.process.state() == QProcess.Running:
+                try:
+                    self.process.write(b"Y\n")
+                    self.process.flush()
+                except Exception:
+                    pass
+
+        def migrate_cancel():
+            dialog.reject()
+            if self.process and self.process.state() == QProcess.Running:
+                try:
+                    self.process.write(b"n\n")
+                    self.process.flush()
+                except Exception:
+                    pass
+
+        ok_btn.clicked.connect(migrate_ok)
+        cancel_btn.clicked.connect(migrate_cancel)
+        dialog.exec()
+    
     def show_vnc_retry_dialog(self):
         dialog = QDialog(self)
         dialog.setWindowTitle("RDP Connection Help")
