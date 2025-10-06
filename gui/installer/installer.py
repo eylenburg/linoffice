@@ -393,7 +393,6 @@ After you've signed out, click <b>Try Again</b>.
         # Show the message box and get the response
         remove_reply = msg_box.exec()
 
-        # THIS IS NOT WORKING YET, SCRIPT IS NOT EXECUTED!
         if remove_reply == QMessageBox.Yes:
             script_dir = os.path.dirname(os.path.abspath(__file__))
             script_path = os.path.join(script_dir, 'remove_container.sh')
