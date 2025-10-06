@@ -19,15 +19,23 @@ copy %~dp0\NetProfileCleanup.ps1 %windir% >> C:\OEM\setup.log 2>&1
 set "taskname=NetworkProfileCleanup"
 set "command=powershell.exe -ExecutionPolicy Bypass -File \"%windir%\NetProfileCleanup.ps1\""
 
-schtasks /query /tn "%taskname%" >nul
+schtasks /query /tn "%taskname%" >nul 2>&1
 if %ERRORLEVEL% equ 0 (
     echo %DATE% %TIME% Task "%taskname%" already exists, skipping creation. >> C:\OEM\setup.log
 ) else (
+    REM Try creating with SYSTEM account first
     schtasks /create /tn "%taskname%" /tr "%command%" /sc onstart /ru "SYSTEM" /rl HIGHEST /f >> C:\OEM\setup.log 2>&1
     if %ERRORLEVEL% equ 0 (
-        echo %DATE% %TIME% Scheduled task "%taskname%" created successfully. >> C:\OEM\setup.log
+        echo %DATE% %TIME% Scheduled task "%taskname%" created successfully with SYSTEM account. >> C:\OEM\setup.log
     ) else (
-        echo %DATE% %TIME% Failed to create scheduled task %taskname%. >> C:\OEM\setup.log
+        echo %DATE% %TIME% Failed to create task with SYSTEM account, trying without /ru parameter... >> C:\OEM\setup.log
+        REM Retry without /ru SYSTEM parameter (uses current user context)
+        schtasks /create /tn "%taskname%" /tr "%command%" /sc onstart /rl HIGHEST /f >> C:\OEM\setup.log 2>&1
+        if %ERRORLEVEL% equ 0 (
+            echo %DATE% %TIME% Scheduled task "%taskname%" created successfully with default account. >> C:\OEM\setup.log
+        ) else (
+            echo %DATE% %TIME% Failed to create scheduled task "%taskname%" with both SYSTEM and default account. >> C:\OEM\setup.log
+        )
     )
 )
 
