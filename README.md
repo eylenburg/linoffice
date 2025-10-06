@@ -300,6 +300,41 @@ LinOffice searches and deletes these lock files when the last Office process is 
 
 </details>
 
+# For developers
+
+These are the files that are part of LinOffice and their functions:
+
+- `quickstart.sh`: Script that installs all required dependencies (new ones are remembered in `~/.local/share/linoffice/installed_dependencies`, downloads the latest version of LinOffice from GitHub and then launches `src/gui/linoffice.py`, which will most likely end up running the graphical installer
+- `src/setup.sh`: Install script for LinOffice. Checks requirements are met and dependencies are installed, calls `locale_lang.sh` and `locale_reg.sh` to set various location settings, downloads Windows and sets up a Windows VM, installs Office in the VM, tries to connect via RDP, executes `FirstRDPRun.ps1` script in Windows, and creates app launchers.
+- `src/linoffice.sh`: Main script that is used when running LinOffice. It manages the Podman container (e.g. start or unsuspend) and runs the correct FreeRDP command for the Office (and other) applications.
+- `src/uninstall.sh`: Uninstall script. Removes program launchers in `~/.local/share/applications`, removes all LinOffice files in `~/.local/bin/linoffice/` and `~/.local/share/linoffice/`, offers to removes dependencies that were installed by `quickstart.sh` (as noted down in `~/.local/share/linoffice/installed_dependencies`), offers to remove the LinOffice Podman container and its data.
+- `src/updater.py`: Checks if a newer version of LinOffice is available on GitHub and updates the files.
+- `src/gui/linoffice.py`: Either starts the installation process (`installer.py`) or launches the LinOffice GUI (`mainwindow.py`).
+- `src/gui/mainwindow.py`: The main GUI for LinOffice.
+- `src/gui/*.ui`: Various XML files defining the graphical user interface for the main app.
+- `src/gui/installer/installer.py`: Graphical version of the installer, which mainly just runs `setup.sh`.
+- `src/gui/installer/remove_container.sh`: Script to remove the Podman container if the installation is aborted.
+- `src/gui/installer/*.ui`: Various XML files defining the graphical user interface for the installer.
+- `src/config/locale_lang.sh`: Copies the `compose.yaml.default` to a new file called `compose.yaml`, copies the `linoffice.conf.default` to a new file called `linoffice.conf`. Determines the language settings in the Linux host (system language, region, keyboard layout) and applies them to `compose.yaml` and `linoffice.conf`.
+- `src/config/compose.yaml.default`: Template compose file. The version created by `locale_lang.sh`, `compose.yaml`, is used by podman-compose to create the Windows container. It also includes some settings the user can change before installation, e.g. using a different Windows version.
+- `src/config/linoffice.conf.default`: Template config file. The version created by `locale_lang.sh`, `linoffice.conf`, is used by `linoffice.sh` to read various settings, including the auto-pause timer for Windows, keyboard layout, display scaling, and various FreeRDP flags.
+- `src/config/locale_reg.sh`: Determines additional language settings in the Linux host that are particularly relevant for Excel (decimal and thousand separator, currency symbol, date format) and creates a registry file in `src/config/oem/registry/regional_settings.reg` which is the applied by `install.bat`.
+- `src/config/languages.csv`: List of keyboard layouts and their corresponding Windows/FreeRDP codes
+- `src/config/oem/install.bat`: Script that runs at the end of the Windows installation, before the desktop is shown for the first time. It applies the registry settings (all files in `src/config/oem/registry`, including the `regional_settings.reg` created by `locale_reg.sh`), creates `NetProfileCleanup.ps1` and `TimeSync.ps1` as scheduled tasks, sets the time zone to UTC, schedules running `InstallOffice.ps1` after a reboot and then reboots the VM.
+- `src/config/oem/OfficeConfiguration.xml`: Config file for the automatic installation of Office, e.g. which version of Office to install. It is used by Office Deployment Tool.
+- `src/config/oem/InstallOffice.ps1`: Scheduled by `install.bat`. Downloads Office Deployment Tool from Microsoft and runs it to install Microsoft Office using the configuration in `OfficeConfiguration.xml`. Then creates an empty file called `C:\OEM\success` and reboots the machine. This is the fourth reboot (three occur during the Windows installation) which will signal to `setup.sh` that the virtual machine is all set up now.
+- `src/config/oem/NetProfileCleanup.ps1`: A scheduled task created by `install.bat`. It renames the current network profile to LinOffice and deletes all other ones.
+- `src/config/oem/TimeSync.ps1`: A scheduled task created by `install.bat`. It syncs the time if a file called `\\tsclient\home\.local\share\linoffice\sleep_marker` is detected, which is created by `linoffice.sh` after the Linux host machine is suspended (which would introduce a time drift between the host and the VM).
+- `src/config/oem/FirstRDPRun.ps1`: Creates a `success` file in Linux if the `C:\OEM\success` file exists in Windows (confirming a successful Office installation) and runs `QuickAccess.ps1`. This script is called by `setup.sh`.
+- `src/config/oem/QuickAccess.ps1`: Cleans up the quick access in Windows File Explorer by unpinning all folders and pinning the Linux `/home` folder instead.
+- `src/config/oem/RegistryOverride.ps1`: Applies changes to certain localization settings when they are change in the LinOffice GUI. This works by reading `registry_override.conf` (created by `mainwindow.py`) and applying the settings to the Windows registry.
+- `src/config/oem/UpdateWindows.ps1`: An script to update Windows and Microsoft Office. Can be called by the LinOffice GUI or `linoffice.sh` directly.
+- `src/config/oem/dns_off.bat`: An script to "break" DNS resolving for the Windows VM, for users who don't want the VM to be able to connect to the Internet. (Though it doesn't block connection to IPs directly.) Can be called by the LinOffice GUI or `linoffice.sh` directly.
+- `src/config/oem/dns_on.bat`: Undo what `dns_off.bat` did.
+- `src/config/oem/registry/explorer_settings.reg`: Various settings for Windows Explorer, e.g. enabling file extensions by default. These settings are applied by `install.bat`.
+- `src/config/oem/registry/linoffice.reg`: Various Windows settings, e.g. allow any app to be run as RemoteApp via RDP, disable automatic logon, allow long file paths, prevent Windows Update from rebooting the machine etc. These settings are applied by `install.bat`.
+
+
 # Legal information
 
 This project is licensed under the GNU AGPL 3. 
