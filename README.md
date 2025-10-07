@@ -27,6 +27,7 @@ The project utilises [Winapps](https://github.com/winapps-org/winapps), [Dockur/
 - [x] Circumvent geo-blocking for the Office installation
 - [x] Install updates for Windows and Office
 - [x] Tidy Quick Access pane in Windows File Explorer
+- [x] Automatically debloats Windows and disables telemetry and ads, using [Win11Debloat](https://github.com/Raphire/Win11Debloat/)
 - [x] Troubleshooting functions e.g. force cleanup of Office lock files, recreate .desktop files for the Office apps, reboot the Windows container, container health check
 
 </details>
@@ -304,6 +305,7 @@ LinOffice searches and deletes these lock files when the last Office process is 
 
 These are the files that are part of LinOffice and their functions:
 
+<details><summary>File list</summary>
 - `quickstart.sh`: Script that installs all required dependencies (new ones are remembered in `~/.local/share/linoffice/installed_dependencies`, downloads the latest version of LinOffice from GitHub and then launches `src/gui/linoffice.py`, which will most likely end up running the graphical installer
 - `src/setup.sh`: Install script for LinOffice. Checks requirements are met and dependencies are installed, calls `locale_lang.sh` and `locale_reg.sh` to set various location settings, downloads Windows and sets up a Windows VM, installs Office in the VM, tries to connect via RDP, executes `FirstRDPRun.ps1` script in Windows, and creates app launchers.
 - `src/linoffice.sh`: Main script that is used when running LinOffice. It manages the Podman container (e.g. start or unsuspend) and runs the correct FreeRDP command for the Office (and other) applications.
@@ -320,7 +322,7 @@ These are the files that are part of LinOffice and their functions:
 - `src/config/linoffice.conf.default`: Template config file. The version created by `locale_lang.sh`, `linoffice.conf`, is used by `linoffice.sh` to read various settings, including the auto-pause timer for Windows, keyboard layout, display scaling, and various FreeRDP flags.
 - `src/config/locale_reg.sh`: Determines additional language settings in the Linux host that are particularly relevant for Excel (decimal and thousand separator, currency symbol, date format) and creates a registry file in `src/config/oem/registry/regional_settings.reg` which is the applied by `install.bat`.
 - `src/config/languages.csv`: List of keyboard layouts and their corresponding Windows/FreeRDP codes
-- `src/config/oem/install.bat`: Script that runs at the end of the Windows installation, before the desktop is shown for the first time. It applies the registry settings (all files in `src/config/oem/registry`, including the `regional_settings.reg` created by `locale_reg.sh`), creates `NetProfileCleanup.ps1` and `TimeSync.ps1` as scheduled tasks, sets the time zone to UTC, schedules running `InstallOffice.ps1` after a reboot and then reboots the VM.
+- `src/config/oem/install.bat`: Script that runs at the end of the Windows installation, before the desktop is shown for the first time. It applies the registry settings (all files in `src/config/oem/registry`, including the `regional_settings.reg` created by `locale_reg.sh`), creates `NetProfileCleanup.ps1` and `TimeSync.ps1` as scheduled tasks, sets the time zone to UTC, runs Win11Debloat, schedules running `InstallOffice.ps1` after a reboot and then reboots the VM.
 - `src/config/oem/OfficeConfiguration.xml`: Config file for the automatic installation of Office, e.g. which version of Office to install. It is used by Office Deployment Tool.
 - `src/config/oem/InstallOffice.ps1`: Scheduled by `install.bat`. Downloads Office Deployment Tool from Microsoft and runs it to install Microsoft Office using the configuration in `OfficeConfiguration.xml`. Then creates an empty file called `C:\OEM\success` and reboots the machine. This is the fourth reboot (three occur during the Windows installation) which will signal to `setup.sh` that the virtual machine is all set up now.
 - `src/config/oem/NetProfileCleanup.ps1`: A scheduled task created by `install.bat`. It renames the current network profile to LinOffice and deletes all other ones.
@@ -333,7 +335,7 @@ These are the files that are part of LinOffice and their functions:
 - `src/config/oem/dns_on.bat`: Undo what `dns_off.bat` did.
 - `src/config/oem/registry/explorer_settings.reg`: Various settings for Windows Explorer, e.g. enabling file extensions by default. These settings are applied by `install.bat`.
 - `src/config/oem/registry/linoffice.reg`: Various Windows settings, e.g. allow any app to be run as RemoteApp via RDP, disable automatic logon, allow long file paths, prevent Windows Update from rebooting the machine etc. These settings are applied by `install.bat`.
-
+</details>
 
 # Legal information
 
