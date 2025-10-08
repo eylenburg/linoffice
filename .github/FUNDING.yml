@@ -12,4 +12,4 @@ lfx_crowdfunding: # Replace with a single LFX Crowdfunding project-name e.g., cl
 polar: # Replace with a single Polar username
 buy_me_a_coffee: # Replace with a single Buy Me a Coffee username
 thanks_dev: # Replace with a single thanks.dev username
-custom: # Replace with up to 4 custom sponsorship URLs e.g., ['link1', 'link2']
+custom: ['https://trocador.app/anonpay?ticker_to=xmr&network_to=Mainnet&address=87z2UAoivrhUXa52N8YniyQDUrMLAio1QdJtmZhark2K9EKRLQ5Deaba76tXXvRnFQ1kPXutZFENcDgk7VTkxd5C1PfNcWt&ref=sqKNYGZbRl&direct=True', 'https://trocador.app/anonpay?ticker_to=btc&network_to=Mainnet&address=bc1qyy98j05a6kr99qmycn0n36mv9sveq5a3g6rnwe&ref=sqKNYGZbRl&direct=True']
