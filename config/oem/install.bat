@@ -75,14 +75,14 @@ REM Run Win11Debloat script with 5-minute timeout
 REM Command to be executed is: & ([scriptblock]::Create((irm "https://debloat.raphi.re/"))) -RunDefaults -Silent
 REM Script used: https://github.com/Raphire/Win11Debloat/
 echo %DATE% %TIME% Running Win11Debloat script (5-min timeout) >> C:\OEM\setup.log
-powershell.exe -ExecutionPolicy Bypass -Command "& { $job = Start-Job { ([scriptblock]::Create((irm 'https://debloat.raphi.re/'))) -RunDefaults -Silent }; Wait-Job $job -Timeout 300; if ($job.State -eq 'Completed') { Receive-Job $job; $exit=0 } elseif ($job.State -eq 'Failed') { $exit=1 } else { Stop-Job $job -ErrorAction SilentlyContinue; Remove-Job $job -Force; $exit=124 }; exit $exit }" >> C:\OEM\debloat.log 2>&1
+powershell.exe -ExecutionPolicy Bypass -Command "& { $job = Start-Job { & ([scriptblock]::Create((irm 'https://debloat.raphi.re/'))) -RunDefaults -Silent }; Wait-Job $job -Timeout 300; if ($job.State -eq 'Completed') { Receive-Job $job; $exit=0 } elseif ($job.State -eq 'Failed') { $exit=1 } else { Stop-Job $job -ErrorAction SilentlyContinue; Remove-Job $job -Force; $exit=124 }; exit $exit }" >> C:\OEM\debloat.log 2>&1
 set DEBLOAT_EXIT=%ERRORLEVEL%
 if %DEBLOAT_EXIT% equ 0 (
-    echo %DATE% %TIME% Win11Debloat script completed successfully (exit: %DEBLOAT_EXIT%) >> C:\OEM\setup.log
+    echo %DATE% %TIME% Win11Debloat script completed successfully ^(exit: %DEBLOAT_EXIT%^) >> C:\OEM\setup.log
 ) else if %DEBLOAT_EXIT% equ 1 (
-    echo %DATE% %TIME% Win11Debloat script failed (exit: %DEBLOAT_EXIT%) >> C:\OEM\setup.log
+    echo %DATE% %TIME% Win11Debloat script failed ^(exit: %DEBLOAT_EXIT%^) >> C:\OEM\setup.log
 ) else if %DEBLOAT_EXIT% equ 124 (
-    echo %DATE% %TIME% Win11Debloat script timed out after 5 minutes (exit: %DEBLOAT_EXIT%) >> C:\OEM\setup.log
+    echo %DATE% %TIME% Win11Debloat script timed out after 5 minutes ^(exit: %DEBLOAT_EXIT%^) >> C:\OEM\setup.log
 ) else (
     echo %DATE% %TIME% Win11Debloat script ended with unexpected exit code %DEBLOAT_EXIT% >> C:\OEM\setup.log
 )
