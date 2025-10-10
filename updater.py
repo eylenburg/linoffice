@@ -87,14 +87,21 @@ def download_and_update(asset_url, current_dir):
             return False
         prefix = top_level_folder.split('/')[0] + '/'
 
+        # Prefer extracting contents of 'src/' if present; otherwise use archive root
+        has_src = any(name.startswith(prefix + 'src/') for name in zip_file.namelist())
+        content_prefix = prefix + 'src/' if has_src else prefix
+
         # Count updated files
         updated_count = 0
 
-        # Extract files, skipping the top-level folder
+        # Extract files, skipping directory entries and using selected content prefix
         for file_info in zip_file.infolist():
-            if file_info.is_dir() or file_info.filename == prefix:
+            if file_info.is_dir():
                 continue
-            relative_path = file_info.filename[len(prefix):]
+            # Only process files within the selected content prefix
+            if not file_info.filename.startswith(content_prefix):
+                continue
+            relative_path = file_info.filename[len(content_prefix):]
             if not relative_path:
                 continue
             target_path = Path(current_dir) / relative_path

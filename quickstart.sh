@@ -629,17 +629,24 @@ download_latest() {
     exit 1
   fi
 
+  # Determine source directory to install (prefer src/ if present)
+  SOURCE_DIR="$EXTRACTED_DIR"
+  if [[ -d "$EXTRACTED_DIR/src" ]]; then
+    echo "Detected 'src' directory inside archive; using its contents for installation."
+    SOURCE_DIR="$EXTRACTED_DIR/src"
+  fi
+
   echo "Installing to $TARGET_DIR..."
 
   # Check if TARGET_DIR exists and contains linoffice.sh
   if [[ -d "$TARGET_DIR" && -f "$TARGET_DIR/linoffice.sh" ]]; then
     echo "Existing installation found. Updating files..."
-    cp -r -u "$EXTRACTED_DIR/"* "$TARGET_DIR/"
+    cp -a "$SOURCE_DIR"/. "$TARGET_DIR"/
   else
-    # If TARGET_DIR doesn't exist or doesn't contain linoffice.sh, replace it
+    # If TARGET_DIR doesn't exist or doesn't contain linoffice.sh, replace it with contents of SOURCE_DIR
     rm -rf "$TARGET_DIR"
-    mkdir -p "$(dirname "$TARGET_DIR")"
-    mv "$EXTRACTED_DIR" "$TARGET_DIR"
+    mkdir -p "$TARGET_DIR"
+    cp -a "$SOURCE_DIR"/. "$TARGET_DIR"/
   fi
 
   # Make everything executable
