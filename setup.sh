@@ -606,12 +606,12 @@ function check_requirements() {
 	    if [ -z "$driver" ]; then
 	        print_info "Podman storage driver is not set. Setting up with overlay storage driver"
 	        mkdir -p ~/.config/containers
-	        cat > ~/.config/containers/storage.conf <<-EOF
+	        cat > ~/.config/containers/storage.conf <<EOF
 	            [storage]
 	            driver = "overlay"
 	            runroot = "/run/user/\$(id -u)/containers"
 	            graphroot = "\$HOME/.local/share/containers/storage"
-	        EOF
+EOF
 	
 	        # Check running containers before migrate
 	        running_containers=$(podman ps --format '{{.Names}}' 2>/dev/null)
@@ -1050,13 +1050,18 @@ function update_config_file() {
     # Trim leading/trailing spaces and update the line
     rdp_flags=$(echo "$rdp_flags" | sed 's|^ ||; s| $||')
     if [[ -n "$rdp_flags" ]]; then
-        sed -i "/^RDP_FLAGS=/ s/.*/RDP_FLAGS=\"$rdp_flags\"/" "$conf_file"
+        # Escape sed replacement specials in flags
+        local rdp_flags_escaped
+        rdp_flags_escaped=$(printf '%s' "$rdp_flags" | sed 's/[&|]/\\&/g')
+        sed -i "/^RDP_FLAGS=/ s|.*|RDP_FLAGS=\"$rdp_flags_escaped\"|" "$conf_file"
     else
-        sed -i "/^RDP_FLAGS=/ s/.*/RDP_FLAGS=\"\"/" "$conf_file"
+        sed -i "/^RDP_FLAGS=/ s|.*|RDP_FLAGS=\"\"|" "$conf_file"
     fi
     
-    # Update FREERDP_COMMAND line
-    sed -i "/^FREERDP_COMMAND=/ s/\"[^\"]*\"/\"${FREERDP_COMMAND}\"/" "$conf_file"
+    # Update FREERDP_COMMAND line (escape sed replacement specials)
+    local freerdp_command_escaped
+    freerdp_command_escaped=$(printf '%s' "$FREERDP_COMMAND" | sed 's/[&|]/\\&/g')
+    sed -i "/^FREERDP_COMMAND=/ s|\"[^\"]*\"|\"${freerdp_command_escaped}\"|" "$conf_file"
 }
 
 function check_available() {
