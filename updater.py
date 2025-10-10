@@ -52,6 +52,12 @@ def compare_versions(current_version, latest_version):
     """Compare two version strings."""
     return version_tuple(latest_version) > version_tuple(current_version)
 
+def major_version(v):
+    try:
+        return int(v.split(".")[0])
+    except Exception:
+        return -1
+
 def download_and_update(asset_url, current_dir):
     """Download and extract the new release, preserving specified files."""
     try:
@@ -139,12 +145,23 @@ def main():
         print(f"No update needed. Current version: {CURRENT_VERSION}, Latest: {latest_version}")
         return
 
-    print(f"New version available: {latest_version} (Current: {CURRENT_VERSION}) Do you want to update?")
+    print(f"New version available: {latest_version} (Current: {CURRENT_VERSION})")
 
-    confirm = input("Do you want to download and install the update? (y/n): ").strip().lower()
-    if confirm != 'y':
-        print("Update cancelled.")
-        return
+    # If major version changes, prompt with release notes link and explicit warning
+    if major_version(CURRENT_VERSION) != major_version(latest_version):
+        release_notes_url = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/tag/v{latest_version}"
+        print("WARNING: This update changes the major version and may include breaking changes.")
+        print("You may have to intervene manually if updating from the current version.")
+        print(f"Please review the release notes: {release_notes_url}")
+        confirm_major = input("Do you still want to update? (y/n): ").strip().lower()
+        if confirm_major != 'y':
+            print("Update cancelled.")
+            return
+    else:
+        confirm = input("Do you want to download and install the update? (y/n): ").strip().lower()
+        if confirm != 'y':
+            print("Update cancelled.")
+            return
 
     # Construct the GitHub tag-based zip URL
     asset_url = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/archive/refs/tags/v{latest_version}.zip"

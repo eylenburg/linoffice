@@ -549,12 +549,21 @@ class ToolsWindow(QMainWindow):
                 if line.strip():  # Only process non-empty lines
                     self.text_edit.append(line)
                     
-                    # Check for input prompts
+                    # Check for input prompts, the "y/n" should handle both normal updates and major version warnings
                     lower_line = line.lower()
                     if "(y/n)" in lower_line or "update?" in lower_line:
                         self.waiting_for_input = True
                         self.yes_button.setVisible(True)
                         self.no_button.setVisible(True)
+                        # Default to 'No' as the safe choice
+                        try:
+                            self.no_button.setAutoDefault(True)
+                            self.no_button.setDefault(True)
+                            self.no_button.setFocus()
+                            self.yes_button.setAutoDefault(False)
+                            self.yes_button.setDefault(False)
+                        except Exception:
+                            pass
             
             # Auto-scroll to bottom
             self._scroll_to_bottom()
