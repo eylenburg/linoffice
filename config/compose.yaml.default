@@ -28,6 +28,7 @@ services:
       REGION: "en-001"
       KEYBOARD: "en-US"
       ARGUMENTS: "-cpu host,arch_capabilities=off" # needed for Win 11
+      NETWORK: "slirp" # User-mode networking may break otherwise
     ports:
       - 8006:8006 # Map '8006' on Linux host to '8006' on Windows VM --> For VNC Web Interface @ http://127.0.0.1:8006
       - 3388:3389/tcp # Map '3388' on Linux host to '3389' on Windows VM --> For Remote Desktop Protocol (RDP). 3388 is chosen to avoid conflict with the standard RDP and WinApps port 3389, in case there are two VMs running.
