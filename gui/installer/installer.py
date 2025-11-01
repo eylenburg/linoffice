@@ -383,7 +383,7 @@ After you've signed out, click <b>Try Again</b>.
         # Ask about removing the container
         msg_box = QMessageBox()
         msg_box.setWindowTitle("Remove Container?")
-        msg_box.setText("Do you want to remove the 'LinOffice' podman container and all its data? This action cannot be undone.\n\nIf you are running this installer for the first time, you can select 'Yes'. If you have previously set up LinOffice and are running this installer again, you should select 'No' unless you explicitly want your Windows container including all its data to be deleted.")
+        msg_box.setText("Do you want to remove the 'LinOffice' container and all its data? This action cannot be undone.\n\nIf you are running this installer for the first time, you can select 'Yes'. If you have previously set up LinOffice and are running this installer again, you should select 'No' unless you explicitly want your Windows container including all its data to be deleted.")
         msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         msg_box.setDefaultButton(QMessageBox.No)
         msg_box.setIcon(QMessageBox.Warning)
@@ -400,7 +400,7 @@ After you've signed out, click <b>Try Again</b>.
             if not os.path.isfile(script_path):
                 QMessageBox.critical(
                     self, "Error",
-                    f"Error. Podman container and volume have not been removed. Script not found: {script_path}",
+                    f"Error. Container and volume have not been removed. Script not found: {script_path}",
                     QMessageBox.Ok
                 )
                 return
@@ -428,7 +428,7 @@ After you've signed out, click <b>Try Again</b>.
             if not success:
                 QMessageBox.critical(
                     self, "Error",
-                    "Error. Podman container and volume have not been removed. Could not load terminal.",
+                    "Error. Container and volume have not been removed. Could not load terminal.",
                     QMessageBox.Ok
                 )
 

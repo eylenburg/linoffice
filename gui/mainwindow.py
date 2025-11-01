@@ -93,6 +93,7 @@ class MainWindow(QWidget):
         super().__init__(parent)
         # Ensure registry config exists before loading UI
         ensure_registry_config_exists()
+        self.engine = open(os.path.join(os.path.dirname(__file__), "engine.txt")).read().strip()
         self.load_ui('main.ui')
         self.setWindowTitle(self.ui.windowTitle())
         self.connect_buttons()
@@ -141,7 +142,7 @@ class MainWindow(QWidget):
 
     def update_container_status(self):
         try:
-            result = subprocess.run(['podman', 'ps', '--filter', 'name=LinOffice', '--format', '{{.Status}}'], capture_output=True, text=True, check=True)
+            result = subprocess.run([self.engine, 'ps', '--filter', 'name=LinOffice', '--format', '{{.Status}}'], capture_output=True, text=True, check=True)
             status = result.stdout.strip()
             if status:
                 status_text = f"Container: running ({status})"
@@ -153,7 +154,7 @@ class MainWindow(QWidget):
 
     def check_and_prompt_container(self):
         try:
-            result = subprocess.run(['podman', 'ps', '--filter', 'name=LinOffice', '--format', '{{.Status}}'], capture_output=True, text=True, check=True)
+            result = subprocess.run([self.engine, 'ps', '--filter', 'name=LinOffice', '--format', '{{.Status}}'], capture_output=True, text=True, check=True)
             if not result.stdout.strip():
                 # Container is not running, show dialog
                 dialog = QMessageBox(self)
@@ -166,7 +167,7 @@ class MainWindow(QWidget):
                     # Run linoffice.sh --startcontainer in the background
                     threading.Thread(target=lambda: subprocess.Popen([LINOFFICE_SCRIPT, '--startcontainer'])).start()
         except subprocess.CalledProcessError as e:
-            print(f"DEBUG: podman ps error: {e.stderr}")
+            print(f"DEBUG: {self.engine} ps error: {e.stderr}")
             QMessageBox.critical(self, "Error", "Could not check container status.")
 
 # Defining secondary windows

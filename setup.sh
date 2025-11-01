@@ -13,6 +13,7 @@ mkdir -p "$APPDATA_PATH"
 SUCCESS_FILE="${APPDATA_PATH}/success"
 PROGRESS_FILE="${APPDATA_PATH}/setup_progress.log"
 OUTPUT_LOG="${APPDATA_PATH}/setup_output.log"
+ENGINE_FILE="$TARGET_DIR/gui/engine.txt"
 
 # Relative filepaths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,6 +50,7 @@ DESKTOP_ONLY=false
 FIRSTRUN=false
 INSTALL_OFFICE_ONLY=false
 HEALTHCHECK=false
+USE_DOCKER=false
 
 # Colors for output
 RED='\033[0;31m'
@@ -59,6 +61,7 @@ NC='\033[0m' # No Color
 USE_VENV=0
 
 COMPOSE_COMMAND="podman-compose"
+CONTAINER_ENGINE="podman"
 
 # Redirect all output to the log file
 exec > >(stdbuf -oL -eL sed -u 's/\x1b\[[0-9;]*m//g' | tee -a "$OUTPUT_LOG") 2>&1
@@ -135,13 +138,14 @@ use_venv
 
 # Function to display usage information
 print_usage() {
-    print_info "Usage: $0 [--desktop] [--firstrun] [--installoffice] [--healthcheck]"
+    print_info "Usage: $0 [--desktop] [--firstrun] [--installoffice] [--healthcheck] [--docker]"
     print_info "Options:"
     print_info " (no flag)     Run the installation script from the beginning"
     print_info "  --desktop    Only recreate the desktop files (.desktop launchers)"
     print_info "  --firstrun   Force RDP and Office installation checks"
     print_info "  --installoffice   Only run the Office installation script script (in case the Windows installation has finished but Office is not installed)"
     print_info "  --healthcheck   Check that the system requirements are met and dependencies are installed and the container is healthy"
+    print_info "  --docker     Use Docker instead of Podman for container management"
     exit 1
 }
 
@@ -163,7 +167,12 @@ while [[ $# -gt 0 ]]; do
         --healthcheck)
             HEALTHCHECK=true
             shift
-            ;;            
+            ;;
+        --docker)
+            USE_DOCKER=true
+            echo "docker" > "$ENGINE_FILE"
+            shift
+            ;;
         --help)
             print_usage
             ;;
@@ -173,6 +182,43 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Set container engine and compose command based on --docker flag
+if [ "$USE_DOCKER" = true ]; then
+    CONTAINER_ENGINE="docker"
+    COMPOSE_COMMAND="docker-compose"
+    print_info "Using Docker instead of Podman"
+else
+    CONTAINER_ENGINE="podman"
+    COMPOSE_COMMAND="podman-compose"
+    print_info "Using Podman (default)"
+fi
+
+# Store container engine choice in config file for linoffice.sh to use
+print_info "Storing container engine choice in configuration file"
+if [ ! -f "$LINOFFICE_CONF" ]; then
+    if [ -f "$LINOFFICE_CONF.default" ]; then
+        cp "$LINOFFICE_CONF.default" "$LINOFFICE_CONF"
+        print_info "Created configuration file from default template"
+    else
+        exit_with_error "Configuration file not found: $LINOFFICE_CONF.default"
+    fi
+fi
+
+# Update the configuration file with container engine choice
+if grep -q "^CONTAINER_ENGINE=" "$LINOFFICE_CONF"; then
+    sed -i "s/^CONTAINER_ENGINE=.*/CONTAINER_ENGINE=\"$CONTAINER_ENGINE\"/" "$LINOFFICE_CONF"
+else
+    echo "CONTAINER_ENGINE=\"$CONTAINER_ENGINE\"" >> "$LINOFFICE_CONF"
+fi
+
+if grep -q "^COMPOSE_COMMAND=" "$LINOFFICE_CONF"; then
+    sed -i "s/^COMPOSE_COMMAND=.*/COMPOSE_COMMAND=\"$COMPOSE_COMMAND\"/" "$LINOFFICE_CONF"
+else
+    echo "COMPOSE_COMMAND=\"$COMPOSE_COMMAND\"" >> "$LINOFFICE_CONF"
+fi
+
+print_success "Container engine choice stored: $CONTAINER_ENGINE"
 
 # Function to exit with error
 exit_with_error() {
@@ -208,7 +254,7 @@ function clear_progress() {
 
 function check_linoffice_container() {
     print_info "Checking if LinOffice container exists already"
-    if podman container exists "$CONTAINER_NAME"; then
+    if $CONTAINER_ENGINE container exists "$CONTAINER_NAME"; then
         print_info "Container exists already."
         CONTAINER_EXISTS=1
     else
@@ -321,11 +367,34 @@ function check_requirements() {
 
     print_success "Virtualization support detected: $VIRT_SUPPORT"
 
-    # Check if podman is installed
-    print_info "Checking if podman is installed"
+    # Check if container engine is installed
+    if [ "$USE_DOCKER" = true ]; then
+        print_info "Checking if Docker is installed"
 
-    if ! command -v podman &> /dev/null; then
-        exit_with_error "podman is not installed.
+        if ! command -v docker &> /dev/null; then
+            exit_with_error "Docker is not installed.
+        
+    HOW TO FIX:
+    Ubuntu/Debian: sudo apt update && sudo apt install docker.io
+    Fedora/RHEL: sudo dnf install docker
+    OpenSUSE: sudo zypper install docker
+    Arch Linux: sudo pacman -S docker
+    openSUSE: sudo zypper install docker
+
+    Or visit: https://docs.docker.com/get-docker/"
+        fi
+        
+        if ! docker info >/dev/null 2>&1; then
+            exit_with_error "Docker is not configured correctly or you lack sufficient permissions. Run 'docker info' to diagnose the issue."
+        fi
+
+        DOCKER_VERSION=$(docker --version)
+        print_success "Docker is installed: $DOCKER_VERSION"
+    else
+        print_info "Checking if Podman is installed"
+
+        if ! command -v podman &> /dev/null; then
+            exit_with_error "Podman is not installed.
         
     HOW TO FIX:
     Ubuntu/Debian: sudo apt update && sudo apt install podman
@@ -335,17 +404,22 @@ function check_requirements() {
     openSUSE: sudo zypper install podman
 
     Or visit: https://podman.io/getting-started/installation"
-    fi
-    
-    if ! podman info >/dev/null 2>&1; then
-        exit_with_error "Podman is not configured correctly or you lack sufficient permissions. Run 'podman info' to diagnose the issue."
+        fi
+        
+        if ! podman info >/dev/null 2>&1; then
+            exit_with_error "Podman is not configured correctly or you lack sufficient permissions. Run 'podman info' to diagnose the issue."
+        fi
+
+        PODMAN_VERSION=$(podman --version)
+        print_success "Podman is installed: $PODMAN_VERSION"
     fi
 
-    PODMAN_VERSION=$(podman --version)
-    print_success "podman is installed: $PODMAN_VERSION"
-
-    # Check if podman-compose is installed
-    print_info "Checking if podman-compose is installed"
+    # Check if compose command is installed
+    if [ "$USE_DOCKER" = true ]; then
+        print_info "Checking if Docker Compose is installed"
+    else
+        print_info "Checking if Podman Compose is installed"
+    fi
     print_info "Python environment: $(if [[ "$USE_VENV" -eq 1 ]]; then echo "Virtual environment at $VENV_PATH"; else echo "System Python"; fi)"
 
     # Determine which Python to use for dependency checks
@@ -358,15 +432,37 @@ function check_requirements() {
     fi
 
     if [[ "$USE_VENV" -eq 0 ]]; then
-        # Use system podman-compose, not the one in ~/.local/bin which might be broken
-        if [[ -x "/usr/bin/podman-compose" ]]; then
-            COMPOSE_COMMAND="/usr/bin/podman-compose"
-            print_success "Using system podman-compose: /usr/bin/podman-compose"
-        elif command -v podman-compose &> /dev/null; then
-            COMPOSE_COMMAND="podman-compose"
-            print_success "Using podman-compose from PATH: $(command -v podman-compose)"
+        if [ "$USE_DOCKER" = true ]; then
+            # Use system docker-compose
+            if [[ -x "/usr/bin/docker-compose" ]]; then
+                COMPOSE_COMMAND="/usr/bin/docker-compose"
+                print_success "Using system Docker Compose: /usr/bin/docker-compose"
+            elif command -v docker-compose &> /dev/null; then
+                COMPOSE_COMMAND="docker-compose"
+                print_success "Using Docker Compose from PATH: $(command -v docker-compose)"
+            else
+                exit_with_error "Docker Compose is not installed.
+
+        HOW TO FIX:
+        Option 1 - Using pip: pip3 install docker-compose
+        Option 2 - Using package manager:
+        Ubuntu/Debian: sudo apt install docker-compose
+        Fedora: sudo dnf install docker-compose
+        OpenSUSE: sudo zypper install docker-compose
+        Arch Linux: sudo pacman -S docker-compose
+
+        Or visit: https://docs.docker.com/compose/install/"
+            fi
         else
-            exit_with_error "podman-compose is not installed.
+            # Use system podman-compose, not the one in ~/.local/bin which might be broken
+            if [[ -x "/usr/bin/podman-compose" ]]; then
+                COMPOSE_COMMAND="/usr/bin/podman-compose"
+                print_success "Using system Podman Compose: /usr/bin/podman-compose"
+            elif command -v podman-compose &> /dev/null; then
+                COMPOSE_COMMAND="podman-compose"
+                print_success "Using Podman Compose from PATH: $(command -v podman-compose)"
+            else
+                exit_with_error "Podman Compose is not installed.
 
         HOW TO FIX:
         Option 1 - Using pip: pip3 install podman-compose
@@ -377,8 +473,9 @@ function check_requirements() {
         Arch Linux: sudo pacman -S podman-compose
 
         Or visit: https://github.com/containers/podman-compose"
+            fi
         fi
-        # Check if python-dotenv is installed (dependency of podman-compose)
+        # Check if python-dotenv is installed (dependency of compose command)
         if ! command -v $PYTHON_CMD &> /dev/null; then
             exit_with_error "$PYTHON_CMD command not found. Please install Python 3."
         fi
@@ -452,7 +549,11 @@ function check_requirements() {
     fi
 
     COMPOSE_VERSION=$($COMPOSE_COMMAND --version)
-    print_success "podman-compose is installed: $COMPOSE_VERSION"
+    if [ "$USE_DOCKER" = true ]; then
+        print_success "Docker Compose is installed: $COMPOSE_VERSION"
+    else
+        print_success "Podman Compose is installed: $COMPOSE_VERSION"
+    fi
 
     # Check if FreeRDP is available
     print_info "Checking if FreeRDP is available"
@@ -581,125 +682,177 @@ function check_requirements() {
     fi
     print_success "subUID/subGID mappings verified."
     
-	# Check Podman storage configuration and whether overlay storage driver is used, as some users had problems here
-	print_info "Checking Podman storage configuration"
-	driver=$(podman info --format '{{.Store.GraphDriverName}}' 2>/dev/null)
-	error_msg="Podman is not using overlay storage driver or there's a configuration issue.
-	HOW TO FIX:
+	# Check container engine storage configuration
+	if [ "$USE_DOCKER" = true ]; then
+		print_info "Checking Docker storage configuration"
+		# Docker doesn't need storage driver checks like Podman
+		print_success "Docker storage configuration is handled automatically"
+	else
+		print_info "Checking Podman storage configuration"
+		driver=$(podman info --format '{{.Store.GraphDriverName}}' 2>/dev/null)
+		error_msg="Podman is not using overlay storage driver or there's a configuration issue.
+		HOW TO FIX:
+		
+		    mkdir -p ~/.config/containers
+		
+		    cat > ~/.config/containers/storage.conf <<EOF
+		[storage]
+		driver = \"overlay\"
+		runroot = \"/run/user/\$(id -u)/containers\"
+		graphroot = \"\$HOME/.local/share/containers/storage\"
+		EOF
+		
+		    podman system migrate
+		
+		Then verify with:
+		    podman info --format '{{.Store.GraphDriverName}}'
+		Expected: overlay"
 	
-	    mkdir -p ~/.config/containers
-	
-	    cat > ~/.config/containers/storage.conf <<EOF
-	[storage]
-	driver = \"overlay\"
-	runroot = \"/run/user/\$(id -u)/containers\"
-	graphroot = \"\$HOME/.local/share/containers/storage\"
-	EOF
-	
-	    podman system migrate
-	
-	Then verify with:
-	    podman info --format '{{.Store.GraphDriverName}}'
-	Expected: overlay"
-	
-	if ! echo "$driver" | grep -qE "overlay|btrfs"; then
-	    if [ -z "$driver" ]; then
-	        print_info "Podman storage driver is not set. Setting up with overlay storage driver"
-	        mkdir -p ~/.config/containers
-	        cat > ~/.config/containers/storage.conf <<EOF
-	            [storage]
-	            driver = "overlay"
-	            runroot = "/run/user/\$(id -u)/containers"
-	            graphroot = "\$HOME/.local/share/containers/storage"
+		if ! echo "$driver" | grep -qE "overlay|btrfs"; then
+		    if [ -z "$driver" ]; then
+		        print_info "Podman storage driver is not set. Setting up with overlay storage driver"
+		        mkdir -p ~/.config/containers
+		        cat > ~/.config/containers/storage.conf <<EOF
+		            [storage]
+		            driver = "overlay"
+		            runroot = "/run/user/\$(id -u)/containers"
+		            graphroot = "\$HOME/.local/share/containers/storage"
 EOF
-	
-	        # Check running containers before migrate
-	        running_containers=$(podman ps --format '{{.Names}}' 2>/dev/null)
-	        if [ -n "$running_containers" ] && ! [[ "$running_containers" == "LinOffice" ]]; then
-	            # Multiple or non-LinOffice: Prompt user
-				echo "PROMPT:PODMAN_MIGRATE"
-	            while true; do
-	                read -p "WARNING: podman system migrate will stop ALL running containers and reconfigure storage. This may disrupt other workloads. Continue? (y/n): " -n 1 -r
-	                echo
-	                if [[ $REPLY =~ ^[Yy]$ ]]; then
-	                    break
-	                elif [[ $REPLY =~ ^[Nn]$ ]] || [ -z "$REPLY" ]; then
-	                    exit_with_error "Setup aborted by user. Please run the script again when ready to migrate."
-	                fi
-	            done
-	        fi
-	
-	        podman system migrate
-	        new_driver=$(podman info --format '{{.Store.GraphDriverName}}' 2>/dev/null)
-	        if ! echo "$new_driver" | grep -qE "overlay|btrfs"; then
-	            exit_with_error "$error_msg"
-	        fi
-	    else
-	        exit_with_error "$error_msg"
-	    fi
+		
+		        # Check running containers before migrate
+		        running_containers=$($CONTAINER_ENGINE ps --format '{{.Names}}' 2>/dev/null)
+		        if [ -n "$running_containers" ] && ! [[ "$running_containers" == "LinOffice" ]]; then
+		            # Multiple or non-LinOffice: Prompt user
+					echo "PROMPT:PODMAN_MIGRATE"
+		            while true; do
+		                read -p "WARNING: podman system migrate will stop ALL running containers and reconfigure storage. This may disrupt other workloads. Continue? (y/n): " -n 1 -r
+		                echo
+		                if [[ $REPLY =~ ^[Yy]$ ]]; then
+		                    break
+		                elif [[ $REPLY =~ ^[Nn]$ ]] || [ -z "$REPLY" ]; then
+		                    exit_with_error "Setup aborted by user. Please run the script again when ready to migrate."
+		                fi
+		            done
+		        fi
+		
+		        podman system migrate
+		        new_driver=$(podman info --format '{{.Store.GraphDriverName}}' 2>/dev/null)
+		        if ! echo "$new_driver" | grep -qE "overlay|btrfs"; then
+		            exit_with_error "$error_msg"
+		        fi
+		    else
+		        exit_with_error "$error_msg"
+		    fi
+		fi
 	fi
     
     # Determine if running rootless or rootful
-    if podman info --format '{{.Host.Security.Rootless}}' | grep -q true; then
-        IS_ROOTLESS=true
-        STORAGE_DIR="$HOME/.local/share/containers/storage"
-    else
+    if [ "$USE_DOCKER" = true ]; then
+        # Docker doesn't have rootless/rootful concept like Podman
         IS_ROOTLESS=false
-        STORAGE_DIR="/var/lib/containers/storage"
-    fi
-    print_info "Podman running in $( $IS_ROOTLESS && echo 'rootless' || echo 'rootful' ) mode"
-
-    # Set network directory paths based on rootless status first
-    if [ "$IS_ROOTLESS" = true ]; then
-        NETAVARK_DIR="$HOME/.local/share/containers/networks"
-        CNI_DIR="$HOME/.config/cni/net.d"
+        STORAGE_DIR="/var/lib/docker"
+        print_info "Docker storage directory: $STORAGE_DIR"
     else
-        NETAVARK_DIR="/var/lib/containers/networks"
-        CNI_DIR="/etc/cni/net.d"
+        if podman info --format '{{.Host.Security.Rootless}}' | grep -q true; then
+            IS_ROOTLESS=true
+            STORAGE_DIR="$HOME/.local/share/containers/storage"
+        else
+            IS_ROOTLESS=false
+            STORAGE_DIR="/var/lib/containers/storage"
+        fi
+        print_info "Podman running in $( $IS_ROOTLESS && echo 'rootless' || echo 'rootful' ) mode"
     fi
 
-    # Now select the correct directory based on the network backend
-    if [ "$NETWORK_BACKEND" = "netavark" ]; then
-        NETWORK_DIR="$NETAVARK_DIR"
+    # Set network directory paths based on container engine
+    if [ "$USE_DOCKER" = true ]; then
+        # Docker uses different network directory structure
+        NETWORK_DIR="/var/lib/docker/network"
+        print_info "Docker network directory: $NETWORK_DIR"
     else
-        # Default to CNI backend
-        NETWORK_DIR="$CNI_DIR"
+        # Set network directory paths based on rootless status first
+        if [ "$IS_ROOTLESS" = true ]; then
+            NETAVARK_DIR="$HOME/.local/share/containers/networks"
+            CNI_DIR="$HOME/.config/cni/net.d"
+        else
+            NETAVARK_DIR="/var/lib/containers/networks"
+            CNI_DIR="/etc/cni/net.d"
+        fi
+
+        # Now select the correct directory based on the network backend
+        if [ "$NETWORK_BACKEND" = "netavark" ]; then
+            NETWORK_DIR="$NETAVARK_DIR"
+        else
+            # Default to CNI backend
+            NETWORK_DIR="$CNI_DIR"
+        fi
+        print_info "Podman network directory: $NETWORK_DIR"
     fi
-    print_info "Podman network directory: $NETWORK_DIR"
 
     # Check if storage directory is accessible
     if [ ! -d "$STORAGE_DIR" ] || [ ! -w "$STORAGE_DIR" ]; then
-        exit_with_error "Podman storage directory inaccessible: $STORAGE_DIR
-        
-        1. Check if directory exists: ls -ld \"$STORAGE_DIR\"
-        2. If it exists, fix permissions: $( $IS_ROOTLESS && echo "chmod -R u+rwX \"$STORAGE_DIR\"" || echo "sudo chmod -R u+rwX \"$STORAGE_DIR\"" )
-        3. If it does not exist, initialize Podman: podman info"
+        if [ "$USE_DOCKER" = true ]; then
+            exit_with_error "Docker storage directory inaccessible: $STORAGE_DIR
+            
+    1. Check if directory exists: ls -ld \"$STORAGE_DIR\"
+    2. If it exists, fix permissions: sudo chmod -R u+rwX \"$STORAGE_DIR\"
+    3. If it does not exist, initialize Docker: docker info"
+        else
+            exit_with_error "Podman storage directory inaccessible: $STORAGE_DIR
+            
+    1. Check if directory exists: ls -ld \"$STORAGE_DIR\"
+    2. If it exists, fix permissions: $( $IS_ROOTLESS && echo "chmod -R u+rwX \"$STORAGE_DIR\"" || echo "sudo chmod -R u+rwX \"$STORAGE_DIR\"" )
+    3. If it does not exist, initialize Podman: podman info"
+        fi
     fi
-    print_success "Podman storage directory verified: $STORAGE_DIR"
+    if [ "$USE_DOCKER" = true ]; then
+        print_success "Docker storage directory verified: $STORAGE_DIR"
+    else
+        print_success "Podman storage directory verified: $STORAGE_DIR"
+    fi
     
     # Check which networking backend is in use
-    print_info "Checking Podman networking is working"
-    NETWORK_BACKEND=$(podman info --format '{{.Host.NetworkBackend}}' 2>/dev/null)
-    if [ -z "$NETWORK_BACKEND" ]; then
-        exit_with_error "Failed to detect Podman's network backend. Make sure Podman is correctly installed and accessible to your user. Run 'podman info' to diagnose."
+    if [ "$USE_DOCKER" = true ]; then
+        print_info "Checking Docker networking is working"
+        # Docker doesn't have network backend concept like Podman
+        print_success "Docker networking is handled automatically"
+    else
+        print_info "Checking Podman networking is working"
+        NETWORK_BACKEND=$(podman info --format '{{.Host.NetworkBackend}}' 2>/dev/null)
+        if [ -z "$NETWORK_BACKEND" ]; then
+            exit_with_error "Failed to detect Podman's network backend. Make sure Podman is correctly installed and accessible to your user. Run 'podman info' to diagnose."
+        fi
+        print_info "Podman is using network backend: $NETWORK_BACKEND"
     fi
-    print_info "Podman is using network backend: $NETWORK_BACKEND"
 
     # Test network creation for all backends
     TEST_NET_NAME="linoffice_net_test_$(date +%s)"
-    print_info "Testing network creation with backend: $NETWORK_BACKEND"
-    if ! podman network create "$TEST_NET_NAME" >/dev/null 2>&1; then
-        exit_with_error "Failed to create test network '$TEST_NET_NAME'.
-        
-        HOW TO FIX:
-        1. Check Podman logs: journalctl -u podman
-        2. $( $IS_ROOTLESS && echo 'Ensure user has sufficient permissions.' || echo 'Run as root or check sudo permissions.' )
-        3. Reinstall network backend:
-           - For netavark: $( $IS_ROOTLESS && echo 'podman system reset && podman info' || echo 'sudo dnf reinstall netavark || sudo apt install netavark' )
-           - For CNI: Ensure CNI plugins are installed (e.g., sudo dnf install containernetworking-plugins)
-        4. Verify SELinux/AppArmor settings if enabled."
+    if [ "$USE_DOCKER" = true ]; then
+        print_info "Testing Docker network creation"
+        if ! docker network create "$TEST_NET_NAME" >/dev/null 2>&1; then
+            exit_with_error "Failed to create test network '$TEST_NET_NAME'.
+            
+    HOW TO FIX:
+    1. Check Docker logs: journalctl -u docker
+    2. Ensure user has sufficient permissions (add to docker group)
+    3. Restart Docker service: sudo systemctl restart docker
+    4. If it does not exist, initialize Docker: docker info"
+        fi
+        print_success "Docker test network '$TEST_NET_NAME' created successfully."
+    else
+        print_info "Testing network creation with backend: $NETWORK_BACKEND"
+        if ! podman network create "$TEST_NET_NAME" >/dev/null 2>&1; then
+            exit_with_error "Failed to create test network '$TEST_NET_NAME'.
+            
+    HOW TO FIX:
+    1. Check Podman logs: journalctl -u podman
+    2. $( $IS_ROOTLESS && echo 'Ensure user has sufficient permissions.' || echo 'Run as root or check sudo permissions.' )
+    3. Reinstall network backend:
+       - For netavark: $( $IS_ROOTLESS && echo 'podman system reset && podman info' || echo 'sudo dnf reinstall netavark || sudo apt install netavark' )
+       - For CNI: Ensure CNI plugins are installed (e.g., sudo dnf install containernetworking-plugins)
+    4. Verify SELinux/AppArmor settings if enabled."
+        fi
+        print_success "Test network '$TEST_NET_NAME' created successfully."
     fi
-    print_success "Test network '$TEST_NET_NAME' created successfully."
 
     # Check that network directory exists
     if [ ! -d "$NETWORK_DIR" ]; then
@@ -712,23 +865,46 @@ EOF
     fi
     
     # Clean up test network
-    if podman network exists "$TEST_NET_NAME" >/dev/null 2>&1; then
-        podman network rm "$TEST_NET_NAME" >/dev/null 2>&1 || print_info "Note: Failed to remove test network '$TEST_NET_NAME', you may remove it manually."
+    if [ "$USE_DOCKER" = true ]; then
+        if docker network ls --format '{{.Name}}' | grep -q "^$TEST_NET_NAME$"; then
+            docker network rm "$TEST_NET_NAME" >/dev/null 2>&1 || print_info "Note: Failed to remove test network '$TEST_NET_NAME', you may remove it manually."
+        fi
+    else
+        if podman network exists "$TEST_NET_NAME" >/dev/null 2>&1; then
+            podman network rm "$TEST_NET_NAME" >/dev/null 2>&1 || print_info "Note: Failed to remove test network '$TEST_NET_NAME', you may remove it manually."
+        fi
     fi
-    print_success "Podman networking check completed."
+    if [ "$USE_DOCKER" = true ]; then
+        print_success "Docker networking check completed."
+    else
+        print_success "Podman networking check completed."
+    fi
 
     # Test basic container creation to catch storage issues early
     print_info "Testing basic container functionality..."
-    if ! timeout 60 podman run --rm alpine:latest echo "test" >/dev/null 2>&1; then
-        exit_with_error "Basic container test failed. This could indicate storage driver issues.
-        
-        HOW TO FIX:
-        1. Check Podman logs: journalctl --user -u podman
-        2. Try: podman system reset (WARNING: removes all containers/images)
-        3. Ensure /run/containers and storage directories have correct permissions
-        4. Check if your filesystem supports overlay mounts"
+    if [ "$USE_DOCKER" = true ]; then
+        if ! timeout 60 docker run --rm alpine:latest echo "test" >/dev/null 2>&1; then
+            exit_with_error "Basic container test failed. This could indicate Docker issues.
+            
+    HOW TO FIX:
+    1. Check Docker logs: journalctl -u docker
+    2. Try: docker system prune (WARNING: removes unused containers/images)
+    3. Ensure Docker daemon is running: sudo systemctl start docker
+    4. Check if your filesystem supports overlay mounts"
+        fi
+        print_success "Docker test container created and removed successfully."
+    else
+        if ! timeout 60 podman run --rm alpine:latest echo "test" >/dev/null 2>&1; then
+            exit_with_error "Basic container test failed. This could indicate storage driver issues.
+            
+    HOW TO FIX:
+    1. Check Podman logs: journalctl --user -u podman
+    2. Try: podman system reset (WARNING: removes all containers/images)
+    3. Ensure /run/containers and storage directories have correct permissions
+    4. Check if your filesystem supports overlay mounts"
+        fi
+        print_success "Podman test container created and removed successfully."
     fi
-    print_success "Podman test container created and removed successfully."
 
     # Check connectivity to microsoft.com
     print_info "Checking connectivity to Microsoft"
@@ -803,17 +979,30 @@ function create_container() {
     local download_finished=false
     local install_started=false
     local timeout_counter=0
-    local max_timeout=3600  # 60 minutes maximum wait time between podman-compose log output
+    local max_timeout=3600  # 60 minutes maximum wait time between compose log output
     local last_activity_time=$(date +%s)
     local windows_version=""
 
-    # Start podman-compose in the background with unbuffered output and strip ANSI codes
-    print_info "Starting podman-compose in detached mode..."
+    # Start compose command in the background with unbuffered output and strip ANSI codes
+    if [ "$USE_DOCKER" = true ]; then
+        print_info "Starting Docker Compose in detached mode..."
+    else
+        print_info "Starting Podman Compose in detached mode..."
+    fi
 	# If the compose file doesn't exist yet, initialize it from the default template
 	if [ ! -f "$COMPOSE_FILE" ]; then
 		if [ -f "$COMPOSE_FILE.default" ]; then
 			print_info "Creating $COMPOSE_FILE from default template"
 			cp "$COMPOSE_FILE.default" "$COMPOSE_FILE" || exit_with_error "Failed to copy $COMPOSE_FILE.default to $COMPOSE_FILE"
+            sed -i 's/:Z//g; s/:z//g' "$COMPOSE_FILE"
+            sed -i '/^[[:space:]]*annotations:/,/^[[:space:]]*[^[:space:]]/{
+/^[[:space:]]*annotations:/d
+/^[[:space:]]*run\.oci\.keep_original_groups:/d
+}' "$COMPOSE_FILE"
+            sed -i '/^[[:space:]]*group_add:/,/^[[:space:]]*[^[:space:]]/{
+/^[[:space:]]*group_add:/d
+/^[[:space:]]*-[[:space:]]*keep-groups/d
+}' "$COMPOSE_FILE"
 		else
 			exit_with_error "Compose file missing: $COMPOSE_FILE and $COMPOSE_FILE.default not found"
 		fi
@@ -824,12 +1013,12 @@ function create_container() {
 
     # Check if container was actually created
     sleep 5
-    if ! podman ps -a --filter "name=$CONTAINER_NAME" --format "{{.Names}}" | grep -q "^$CONTAINER_NAME$"; then
+    if ! $CONTAINER_ENGINE ps -a --filter "name=$CONTAINER_NAME" --format "{{.Names}}" | grep -q "^$CONTAINER_NAME$"; then
         exit_with_error "Container $CONTAINER_NAME was not created successfully. Check $LOGFILE for detailed error messages."
     fi
 
     print_info "Tailing logs from container: $CONTAINER_NAME"
-    podman logs -f --timestamps "$CONTAINER_NAME" 2>&1 | \
+    $CONTAINER_ENGINE logs -f --timestamps "$CONTAINER_NAME" 2>&1 | \
         stdbuf -oL -eL sed -u 's/\x1b\[[0-9;]*m//g' >> "$LOGFILE" &
     log_pid=$!
 
@@ -947,7 +1136,7 @@ function create_container() {
     # Then check success/failure
     if [ "$result" -eq 0 ]; then
         sleep 5
-        if ! podman ps -q --filter "name=$CONTAINER_NAME" | grep -q .; then
+        if ! $CONTAINER_ENGINE ps -q --filter "name=$CONTAINER_NAME" | grep -q .; then
             exit_with_error "Container setup completed but container is not running. Check $LOGFILE for details."
         else
             print_success "Container setup completed successfully"
@@ -973,7 +1162,7 @@ function verify_container_health() {
     fi
 
     # Check if container is running, otherwise start it
-    if ! podman ps -q --filter "name=$CONTAINER_NAME" | grep -q .; then
+    if ! $CONTAINER_ENGINE ps -q --filter "name=$CONTAINER_NAME" | grep -q .; then
         print_info "Container is not running. Attempting to start it..."
         if ! $COMPOSE_COMMAND --file "$COMPOSE_FILE" start; then
             print_error "Failed to start container"
@@ -1681,7 +1870,7 @@ fi
 if ! check_progress "$PROGRESS_OFFICE" || [ "$FIRSTRUN" = true ]; then
     # If --firstrun, ensure the container is running before checking RDP
     if [ "$FIRSTRUN" = true ]; then
-        if ! podman ps -q --filter "name=$CONTAINER_NAME" | grep -q .; then
+        if ! $CONTAINER_ENGINE ps -q --filter "name=$CONTAINER_NAME" | grep -q .; then
             print_info "Container is not running. Starting LinOffice container for --firstrun..."
             if ! $COMPOSE_COMMAND --file "$COMPOSE_FILE" start; then
                 exit_with_error "Failed to start LinOffice container for --firstrun."

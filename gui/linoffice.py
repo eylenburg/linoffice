@@ -5,10 +5,10 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import QFileInfo
 from pathlib import Path
 
-def container_exists(container_name="LinOffice"):
+def container_exists(container_name="LinOffice", engine="podman"):
     try:
         result = subprocess.run(
-            ["podman", "ps", "-a", "--format", "{{.Names}}"],
+            [engine, "ps", "-a", "--format", "{{.Names}}"],
             capture_output=True,
             text=True
         )
@@ -44,8 +44,9 @@ def main():
     mainwindow_path = os.path.join(base_dir, "mainwindow.py")
     installer_path = os.path.join(base_dir, "installer", "installer.py")
     log_path = "~/.local/share/linoffice/setup_progress.log"
-
-    container_found = container_exists("LinOffice")
+    engine = open(os.path.join(os.path.dirname(__file__), "engine.txt")).read().strip()
+    
+    container_found = container_exists("LinOffice", engine)
     success = setup_successful(log_path)
 
     if container_found:
