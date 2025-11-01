@@ -36,7 +36,7 @@ readonly CONTAINER_NAME="LinOffice"
 readonly RDP_IP="127.0.0.1"
 readonly RDP_PORT="3388"
 readonly RUNID="${RANDOM}"
-readonly WAFLAVOR="podman"
+WAFLAVOR="podman"
 COMPOSE_COMMAND="podman-compose"
 
 ### GLOBAL VARIABLES ###
@@ -64,6 +64,10 @@ SCRIPT_START_TIME=0
 # Virtual environment support
 USE_VENV=0
 VENV_PATH=""
+
+# Container engine support (read from config)
+CONTAINER_ENGINE="podman"
+COMPOSE_COMMAND="podman-compose"
 
 ### TRAPS ###
 # Catch SIGINT (CTRL+C) to call 'waCleanUp'.
@@ -596,12 +600,14 @@ function waCheckContainerRunning() {
     local MAX_WAIT_TIME=120  # Maximum time to wait for container to be ready
 
     # If the container does not exist at all, (re)create it
-    if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
+    if ! ($WAFLAVOR container exists "$CONTAINER_NAME" 2>/dev/null || \
+       $WAFLAVOR inspect "$CONTAINER_NAME" >/dev/null 2>&1); then
+
         dprint "WINDOWS CONTAINER MISSING. RECREATING."
         echo -e "Creating Windows container."
         $COMPOSE_COMMAND --file "$COMPOSE_PATH" up -d &>/dev/null
         NEEDED_BOOT=true
-        # Give podman a moment to register the container before inspecting
+        # Give container engine a moment to register the container before inspecting
         sleep 2
     fi
 
@@ -796,20 +802,37 @@ function waRunCommand() {
 
         # Open Windows RDP session.
         dprint "WINDOWS"
-        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
-            /u:$RDP_USER \
-            /p:$RDP_PASS \
-            /scale:$RDP_SCALE \
-            +dynamic-resolution \
-            +auto-reconnect \
-            +home-drive \
-            +clipboard \
-            -wallpaper \
-            $RDP_KBD \
-            /wm-class:"Microsoft Windows" \
-            /t:"Windows RDP Session [$RDP_IP]" \
-            $RDP_FLAGS \
-            /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        if [ "$USE_DOCKER" -eq 1 ]; then
+            "${FREERDP_COMMAND[@]}" \
+                /u:$RDP_USER \
+                /p:$RDP_PASS \
+                /scale:$RDP_SCALE \
+                +dynamic-resolution \
+                +auto-reconnect \
+                +home-drive \
+                +clipboard \
+                -wallpaper \
+                $RDP_KBD \
+                /wm-class:"Microsoft Windows" \
+                /t:"Windows RDP Session [$RDP_IP]" \
+                $RDP_FLAGS \
+                /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        else
+            podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+                /u:$RDP_USER \
+                /p:$RDP_PASS \
+                /scale:$RDP_SCALE \
+                +dynamic-resolution \
+                +auto-reconnect \
+                +home-drive \
+                +clipboard \
+                -wallpaper \
+                $RDP_KBD \
+                /wm-class:"Microsoft Windows" \
+                /t:"Windows RDP Session [$RDP_IP]" \
+                $RDP_FLAGS \
+                /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        fi
 
         # Capture the process ID.
         FREERDP_PID=$!
@@ -817,18 +840,33 @@ function waRunCommand() {
     elif [ "$1" = "manual" ]; then
         # Open specified application.
         dprint "MANUAL: ${2}"
-        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
-            /u:$RDP_USER \
-            /p:$RDP_PASS \
-            /scale:$RDP_SCALE \
-            +auto-reconnect \
-            +home-drive \
-            +clipboard \
-            -wallpaper \
-            $RDP_KBD \
-            $RDP_FLAGS \
-            /app:program:"$2",hidef:"$HIDEF" \
-            /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        if [ "$USE_DOCKER" -eq 1 ]; then
+            "${FREERDP_COMMAND[@]}" \
+                /u:$RDP_USER \
+                /p:$RDP_PASS \
+                /scale:$RDP_SCALE \
+                +auto-reconnect \
+                +home-drive \
+                +clipboard \
+                -wallpaper \
+                $RDP_KBD \
+                $RDP_FLAGS \
+                /app:program:"$2",hidef:"$HIDEF" \
+                /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        else
+            podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+                /u:$RDP_USER \
+                /p:$RDP_PASS \
+                /scale:$RDP_SCALE \
+                +auto-reconnect \
+                +home-drive \
+                +clipboard \
+                -wallpaper \
+                $RDP_KBD \
+                $RDP_FLAGS \
+                /app:program:"$2",hidef:"$HIDEF" \
+                /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        fi
 
         # Capture the process ID.
         FREERDP_PID=$!   
@@ -836,18 +874,33 @@ function waRunCommand() {
     elif [ "$1" = "update" ]; then
         # Run the script
         dprint "UPDATE"
-        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
-            /u:$RDP_USER \
-            /p:$RDP_PASS \
-            /scale:$RDP_SCALE \
-            +auto-reconnect \
-            +home-drive \
-            +clipboard \
-            -wallpaper \
-            $RDP_KBD \
-            $RDP_FLAGS \
-            /app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\UpdateWindows.ps1' \
-            /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        if [ "$USE_DOCKER" -eq 1 ]; then
+            "${FREERDP_COMMAND[@]}" \
+                /u:$RDP_USER \
+                /p:$RDP_PASS \
+                /scale:$RDP_SCALE \
+                +auto-reconnect \
+                +home-drive \
+                +clipboard \
+                -wallpaper \
+                $RDP_KBD \
+                $RDP_FLAGS \
+                /app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\UpdateWindows.ps1' \
+                /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        else
+            podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+                /u:$RDP_USER \
+                /p:$RDP_PASS \
+                /scale:$RDP_SCALE \
+                +auto-reconnect \
+                +home-drive \
+                +clipboard \
+                -wallpaper \
+                $RDP_KBD \
+                $RDP_FLAGS \
+                /app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\UpdateWindows.ps1' \
+                /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        fi
     
         # Capture the process ID.
         FREERDP_PID=$!  
@@ -856,18 +909,33 @@ function waRunCommand() {
     elif [ "$1" = "registry_override" ]; then
         # Run the script
         dprint "UPDATE"
-        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
-            /u:$RDP_USER \
-            /p:$RDP_PASS \
-            /scale:$RDP_SCALE \
-            +auto-reconnect \
-            +home-drive \
-            +clipboard \
-            -wallpaper \
-            $RDP_KBD \
-            $RDP_FLAGS \
-            /app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\RegistryOverride.ps1' \
-            /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        if [ "$USE_DOCKER" -eq 1 ]; then
+            "${FREERDP_COMMAND[@]}" \
+                /u:$RDP_USER \
+                /p:$RDP_PASS \
+                /scale:$RDP_SCALE \
+                +auto-reconnect \
+                +home-drive \
+                +clipboard \
+                -wallpaper \
+                $RDP_KBD \
+                $RDP_FLAGS \
+                /app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\RegistryOverride.ps1' \
+                /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        else
+            podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+                /u:$RDP_USER \
+                /p:$RDP_PASS \
+                /scale:$RDP_SCALE \
+                +auto-reconnect \
+                +home-drive \
+                +clipboard \
+                -wallpaper \
+                $RDP_KBD \
+                $RDP_FLAGS \
+                /app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\RegistryOverride.ps1' \
+                /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        fi
     
         # Capture the process ID.
         FREERDP_PID=$!  
@@ -876,18 +944,33 @@ function waRunCommand() {
     elif [ "$1" = "internet_off" ]; then
         # Run the script
         dprint "UPDATE"
-        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
-            /u:$RDP_USER \
-            /p:$RDP_PASS \
-            /scale:$RDP_SCALE \
-            +auto-reconnect \
-            +home-drive \
-            +clipboard \
-            -wallpaper \
-            $RDP_KBD \
-            $RDP_FLAGS \
-            /app:program:cmd.exe,cmd:'/c C:\\OEM\\dns_off.bat' \
-            /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        if [ "$USE_DOCKER" -eq 1 ]; then
+            "${FREERDP_COMMAND[@]}" \
+                /u:$RDP_USER \
+                /p:$RDP_PASS \
+                /scale:$RDP_SCALE \
+                +auto-reconnect \
+                +home-drive \
+                +clipboard \
+                -wallpaper \
+                $RDP_KBD \
+                $RDP_FLAGS \
+                /app:program:cmd.exe,cmd:'/c C:\\OEM\\dns_off.bat' \
+                /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        else
+            podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+                /u:$RDP_USER \
+                /p:$RDP_PASS \
+                /scale:$RDP_SCALE \
+                +auto-reconnect \
+                +home-drive \
+                +clipboard \
+                -wallpaper \
+                $RDP_KBD \
+                $RDP_FLAGS \
+                /app:program:cmd.exe,cmd:'/c C:\\OEM\\dns_off.bat' \
+                /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        fi
     
         # Capture the process ID.
         FREERDP_PID=$!  
@@ -896,18 +979,33 @@ function waRunCommand() {
     elif [ "$1" = "internet_on" ]; then
         # Run the script
         dprint "UPDATE"
-        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
-            /u:$RDP_USER \
-            /p:$RDP_PASS \
-            /scale:$RDP_SCALE \
-            +auto-reconnect \
-            +home-drive \
-            +clipboard \
-            -wallpaper \
-            $RDP_KBD \
-            $RDP_FLAGS \
-            /app:program:cmd.exe,cmd:'/c C:\\OEM\\dns_on.bat' \
-            /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        if [ "$USE_DOCKER" -eq 1 ]; then
+            "${FREERDP_COMMAND[@]}" \
+                /u:$RDP_USER \
+                /p:$RDP_PASS \
+                /scale:$RDP_SCALE \
+                +auto-reconnect \
+                +home-drive \
+                +clipboard \
+                -wallpaper \
+                $RDP_KBD \
+                $RDP_FLAGS \
+                /app:program:cmd.exe,cmd:'/c C:\\OEM\\dns_on.bat' \
+                /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        else
+            podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+                /u:$RDP_USER \
+                /p:$RDP_PASS \
+                /scale:$RDP_SCALE \
+                +auto-reconnect \
+                +home-drive \
+                +clipboard \
+                -wallpaper \
+                $RDP_KBD \
+                $RDP_FLAGS \
+                /app:program:cmd.exe,cmd:'/c C:\\OEM\\dns_on.bat' \
+                /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+        fi
     
         # Capture the process ID.
         FREERDP_PID=$!  
@@ -936,19 +1034,35 @@ function waRunCommand() {
         if [ -z "$2" ]; then
             # No file path specified.
             dprint "LAUNCHING OFFICE APP: $FULL_NAME"
-            podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
-                /u:$RDP_USER \
-                /p:$RDP_PASS \
-                /scale:$RDP_SCALE \
-                +auto-reconnect \
-                +home-drive \
-                +clipboard \
-                -wallpaper \
-                $RDP_KBD \
-                $RDP_FLAGS \
-                /wm-class:"$FULL_NAME" \
-                /app:program:"$EXE",hidef:"$HIDEF",icon:"$ICON",name:"$FULL_NAME" \
-                /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+            if [ "$USE_DOCKER" -eq 1 ]; then
+                "${FREERDP_COMMAND[@]}" \
+                    /u:$RDP_USER \
+                    /p:$RDP_PASS \
+                    /scale:$RDP_SCALE \
+                    +auto-reconnect \
+                    +home-drive \
+                    +clipboard \
+                    -wallpaper \
+                    $RDP_KBD \
+                    $RDP_FLAGS \
+                    /wm-class:"$FULL_NAME" \
+                    /app:program:"$EXE",hidef:"$HIDEF",icon:"$ICON",name:"$FULL_NAME" \
+                    /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+            else
+                podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+                    /u:$RDP_USER \
+                    /p:$RDP_PASS \
+                    /scale:$RDP_SCALE \
+                    +auto-reconnect \
+                    +home-drive \
+                    +clipboard \
+                    -wallpaper \
+                    $RDP_KBD \
+                    $RDP_FLAGS \
+                    /wm-class:"$FULL_NAME" \
+                    /app:program:"$EXE",hidef:"$HIDEF",icon:"$ICON",name:"$FULL_NAME" \
+                    /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+            fi
 
             # Capture the process ID.
             FREERDP_PID=$!
@@ -967,20 +1081,37 @@ function waRunCommand() {
             dprint "WINDOWS_FILE_PATH: ${FILE_PATH}"
 
             dprint "LAUNCHING OFFICE APP WITH FILE: $FULL_NAME"
-            podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
-                /u:$RDP_USER \
-                /p:$RDP_PASS \
-                /scale:$RDP_SCALE \
-                +auto-reconnect \
-                +home-drive \
-                +clipboard \
-                /drive:media,"$REMOVABLE_MEDIA" \
-                -wallpaper \
-                $RDP_KBD \
-                $RDP_FLAGS \
-                /wm-class:"$FULL_NAME" \
-                /app:program:"$EXE",hidef:"$HIDEF",icon:"$ICON",name:"$FULL_NAME",cmd:\""$FILE_PATH"\" \
-                /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+            if [ "$USE_DOCKER" -eq 1 ]; then
+                "${FREERDP_COMMAND[@]}" \
+                    /u:$RDP_USER \
+                    /p:$RDP_PASS \
+                    /scale:$RDP_SCALE \
+                    +auto-reconnect \
+                    +home-drive \
+                    +clipboard \
+                    /drive:media,"$REMOVABLE_MEDIA" \
+                    -wallpaper \
+                    $RDP_KBD \
+                    $RDP_FLAGS \
+                    /wm-class:"$FULL_NAME" \
+                    /app:program:"$EXE",hidef:"$HIDEF",icon:"$ICON",name:"$FULL_NAME",cmd:\""$FILE_PATH"\" \
+                    /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+            else
+                podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+                    /u:$RDP_USER \
+                    /p:$RDP_PASS \
+                    /scale:$RDP_SCALE \
+                    +auto-reconnect \
+                    +home-drive \
+                    +clipboard \
+                    /drive:media,"$REMOVABLE_MEDIA" \
+                    -wallpaper \
+                    $RDP_KBD \
+                    $RDP_FLAGS \
+                    /wm-class:"$FULL_NAME" \
+                    /app:program:"$EXE",hidef:"$HIDEF",icon:"$ICON",name:"$FULL_NAME",cmd:\""$FILE_PATH"\" \
+                    /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
+            fi
 
             # Capture the process ID.
             FREERDP_PID=$!
@@ -1015,24 +1146,7 @@ function waRunCommand() {
             exit 1
         fi
 
-        # Wait for the process to terminate with timeout
-        local wait_timeout=30
-        local wait_elapsed=0
-        local wait_interval=1
-
-        while kill -0 "$FREERDP_PID" 2>/dev/null && [ $wait_elapsed -lt $wait_timeout ]; do
-            sleep $wait_interval
-            wait_elapsed=$((wait_elapsed + wait_interval))
-        done
-
-        # If process is still running after timeout, force kill it
-        if kill -0 "$FREERDP_PID" 2>/dev/null; then
-            dprint "FreeRDP process $FREERDP_PID still running after timeout, force killing"
-            kill -TERM "$FREERDP_PID" 2>/dev/null
-            sleep 2
-            kill -KILL "$FREERDP_PID" 2>/dev/null
-        fi
-
+        wait "$FREERDP_PID"
         # Remove the file with the process ID
         rm "${APPDATA_PATH}/FreeRDP_Process_${FREERDP_PID}.cproc" &>/dev/null
 
@@ -1085,18 +1199,33 @@ use_venv() {
     VENV_PATH="$venv_dir"
     USE_VENV=1
 
-    # Only use venv podman-compose if system version is not available
-    if [[ ! -x "/usr/bin/podman-compose" ]] && ! command -v podman-compose &>/dev/null; then
-        PYTHON_PATH="$venv_dir/bin/python3"
-        USER_SITE_PATH=$($PYTHON_PATH -m site | grep USER_SITE | awk -F"'" '{print $2}')
-        PODMAN_BIN=$USER_SITE_PATH/podman_compose.py
+    # Only use venv compose command if system version is not available
+    if [ "$USE_DOCKER" -eq 1 ]; then
+        if [[ ! -x "/usr/bin/docker-compose" ]] && ! command -v docker-compose &>/dev/null; then
+            PYTHON_PATH="$venv_dir/bin/python3"
+            USER_SITE_PATH=$($PYTHON_PATH -m site | grep USER_SITE | awk -F"'" '{print $2}')
+            DOCKER_BIN=$USER_SITE_PATH/docker_compose.py
 
-        if [[ -f "$PODMAN_BIN" ]]; then
-            echo "using podman-compose from venv (system version not available)"
-            COMPOSE_COMMAND="$PYTHON_PATH $PODMAN_BIN"
+            if [[ -f "$DOCKER_BIN" ]]; then
+                echo "using Docker Compose from venv (system version not available)"
+                COMPOSE_COMMAND="$PYTHON_PATH $DOCKER_BIN"
+            fi
+        else
+            echo "system Docker Compose available (will be used instead of venv version)"
         fi
     else
-        echo "system podman-compose available (will be used instead of venv version)"
+        if [[ ! -x "/usr/bin/podman-compose" ]] && ! command -v podman-compose &>/dev/null; then
+            PYTHON_PATH="$venv_dir/bin/python3"
+            USER_SITE_PATH=$($PYTHON_PATH -m site | grep USER_SITE | awk -F"'" '{print $2}')
+            PODMAN_BIN=$USER_SITE_PATH/podman_compose.py
+
+            if [[ -f "$PODMAN_BIN" ]]; then
+                echo "using Podman Compose from venv (system version not available)"
+                COMPOSE_COMMAND="$PYTHON_PATH $PODMAN_BIN"
+            fi
+        else
+            echo "system Podman Compose available (will be used instead of venv version)"
+        fi
     fi
     return 0
   else
@@ -1113,7 +1242,7 @@ if [[ "$1" == "--stopcontainer" ]]; then
     echo "Attempting graceful shutdown of LinOffice container..."
 
     # Check the current status of the container
-    CONTAINER_STATUS=$(podman inspect --format='{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null)
+    CONTAINER_STATUS=$($WAFLAVOR inspect --format='{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null)
 
     # If the container is paused, it must be un-paused first to shut down cleanly
     if [[ "$CONTAINER_STATUS" == "paused" ]]; then
@@ -1125,7 +1254,7 @@ if [[ "$1" == "--stopcontainer" ]]; then
     # Now, if the container is running (or was just un-paused), stop it
     if [[ "$CONTAINER_STATUS" == "running" || "$CONTAINER_STATUS" == "paused" ]]; then
         echo "Sending stop command... (this may take up to 2 minutes)"
-        podman stop "$CONTAINER_NAME" &>/dev/null
+        $WAFLAVOR stop "$CONTAINER_NAME" &>/dev/null
     else
         echo "Container is not running."
     fi
@@ -1146,20 +1275,45 @@ waLastRun
 waLoadConfig
 waGetFreeRDPCommand
 
+# Read container engine choice from config file
+if [ -f "$CONFIG_PATH" ]; then
+    # Source the config file to get CONTAINER_ENGINE and COMPOSE_COMMAND
+    source "$CONFIG_PATH"
+    
+    # Set WAFLAVOR based on CONTAINER_ENGINE from config
+    if [ "$CONTAINER_ENGINE" = "docker" ]; then
+        WAFLAVOR="docker"
+        USE_DOCKER=1
+        echo "Using Docker (from setup configuration)"
+    else
+        WAFLAVOR="podman"
+        USE_DOCKER=0
+        echo "Using Podman (from setup configuration)"
+    fi
+    
+    # Use COMPOSE_COMMAND from config if available
+    if [ -n "$COMPOSE_COMMAND" ]; then
+        echo "Using compose command: $COMPOSE_COMMAND"
+    fi
+else
+    # Fallback to default if config file doesn't exist
+    WAFLAVOR="podman"
+    USE_DOCKER=0
+    echo "Using Podman (default - no config file found)"
+fi
+
 # Check for virtual environment
 echo "Checking for virtual environment..."
 use_venv || echo "Using system Python"
 
-# Ensure COMPOSE_COMMAND is set to a working value
-# First try the system podman-compose if it exists and is executable
-if [[ -x "/usr/bin/podman-compose" ]]; then
-    COMPOSE_COMMAND="/usr/bin/podman-compose"
-    echo "Using system podman-compose from /usr/bin/"
-elif command -v podman-compose &>/dev/null; then
-    COMPOSE_COMMAND="podman-compose"
-    echo "Using podman-compose from PATH"
-else
-    echo "ERROR: No working podman-compose found"
+# Verify COMPOSE_COMMAND is available
+if ! command -v "$COMPOSE_COMMAND" &>/dev/null; then
+    if [ "$USE_DOCKER" -eq 1 ]; then
+        echo "ERROR: Docker Compose command '$COMPOSE_COMMAND' not found"
+    else
+        echo "ERROR: Podman Compose command '$COMPOSE_COMMAND' not found"
+    fi
+    echo "Please run setup.sh first to configure the container engine"
     exit 1
 fi
 

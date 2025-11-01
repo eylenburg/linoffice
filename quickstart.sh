@@ -10,6 +10,7 @@ TMPDIR=$(mktemp -d)
 GITHUB_API_URL="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases"
 
 LINOFFICE_SCRIPT="$TARGET_DIR/gui/linoffice.py"
+ENGINE_FILE="$TARGET_DIR/gui/engine.txt"
 
 APPDATA_DIR="$HOME/.local/share/linoffice"
 INSTALLED_PM_PACKAGES=()
@@ -24,6 +25,9 @@ VENV_PATH=""
 
 # Immutable system support
 USE_IMMUTABLE=0
+
+# Docker support
+USE_DOCKER=0
 
 ##################################################
 # PART 1: INSTALL DEPENDENCIES
@@ -333,9 +337,16 @@ dependencies_main() {
     echo "Detected distro: $DISTRO_ID, package manager: $PKG_MGR"
   fi
 
-  echo "Checking podman..."
-  if ! pkg_exists podman; then
-    try_install_any podman || { echo "Failed to install podman"; exit 1; }
+  if [ "$USE_DOCKER" -eq 1 ]; then
+    echo "Checking Docker..."
+    if ! pkg_exists docker; then
+      try_install_any docker docker.io || { echo "Failed to install Docker"; exit 1; }
+    fi
+  else
+    echo "Checking Podman..."
+    if ! pkg_exists podman; then
+      try_install_any podman || { echo "Failed to install Podman"; exit 1; }
+    fi
   fi
 
   echo "Checking Python 3..."
@@ -362,22 +373,41 @@ dependencies_main() {
     fi
   fi
 
-  # Check if podman-compose needs to be installed via pip
-  NEED_PODMAN_COMPOSE_PIP=false
-  if ! pkg_exists podman-compose; then
-    if [ "$USE_IMMUTABLE" -eq 1 ]; then
-      echo "podman-compose not available, will install via pip for immutable system"
-      NEED_PODMAN_COMPOSE_PIP=true
+  # Check if compose command needs to be installed via pip
+  NEED_COMPOSE_PIP=false
+  if [ "$USE_DOCKER" -eq 1 ]; then
+    if ! pkg_exists docker-compose; then
+      if [ "$USE_IMMUTABLE" -eq 1 ]; then
+        echo "Docker Compose not available, will install via pip for immutable system"
+        NEED_COMPOSE_PIP=true
+      else
+        try_install_any docker-compose || true
+        if ! pkg_exists docker-compose; then
+          echo "Docker Compose not available via package manager, will install via pip"
+          NEED_COMPOSE_PIP=true
+        fi
+      fi
     else
-      try_install_any podman-compose || true
-      if ! pkg_exists podman-compose; then
-        echo "podman-compose not available via package manager, will install via pip"
-        NEED_PODMAN_COMPOSE_PIP=true
+      if [ "$USE_IMMUTABLE" -eq 1 ]; then
+        echo "Docker Compose already available via system package manager"
       fi
     fi
   else
-    if [ "$USE_IMMUTABLE" -eq 1 ]; then
-      echo "podman-compose already available via system package manager"
+    if ! pkg_exists podman-compose; then
+      if [ "$USE_IMMUTABLE" -eq 1 ]; then
+        echo "Podman Compose not available, will install via pip for immutable system"
+        NEED_COMPOSE_PIP=true
+      else
+        try_install_any podman-compose || true
+        if ! pkg_exists podman-compose; then
+          echo "Podman Compose not available via package manager, will install via pip"
+          NEED_COMPOSE_PIP=true
+        fi
+      fi
+    else
+      if [ "$USE_IMMUTABLE" -eq 1 ]; then
+        echo "Podman Compose already available via system package manager"
+      fi
     fi
   fi
 
@@ -401,20 +431,29 @@ dependencies_main() {
   fi
 
   # Install Python dependencies via pip if needed
-  if [ "$NEED_PODMAN_COMPOSE_PIP" = true ] || [ "$NEED_PYSIDE6_PIP" = true ]; then
+  if [ "$NEED_COMPOSE_PIP" = true ] || [ "$NEED_PYSIDE6_PIP" = true ]; then
     echo "Setting up Python environment for pip installations..."
     
     if use_venv; then
       echo "Using virtual environment for Python dependencies"
       source "$VENV_PATH/bin/activate"
       
-      if [ "$NEED_PODMAN_COMPOSE_PIP" = true ]; then
-        echo "Installing podman-compose via pip in virtual environment"
-        ensure_pip
-        pre_has_dotenv=0
-        if is_python_dotenv_installed; then pre_has_dotenv=1; fi
-        pip3 install --user podman-compose || pip install --user podman-compose
-        INSTALLED_PIP_PACKAGES+=("podman-compose")
+      if [ "$NEED_COMPOSE_PIP" = true ]; then
+        if [ "$USE_DOCKER" -eq 1 ]; then
+          echo "Installing Docker Compose via pip in virtual environment"
+          ensure_pip
+          pre_has_dotenv=0
+          if is_python_dotenv_installed; then pre_has_dotenv=1; fi
+          pip3 install --user docker-compose || pip install --user docker-compose
+          INSTALLED_PIP_PACKAGES+=("docker-compose")
+        else
+          echo "Installing Podman Compose via pip in virtual environment"
+          ensure_pip
+          pre_has_dotenv=0
+          if is_python_dotenv_installed; then pre_has_dotenv=1; fi
+          pip3 install --user podman-compose || pip install --user podman-compose
+          INSTALLED_PIP_PACKAGES+=("podman-compose")
+        fi
         PIP_VENV=1
         export PATH="$HOME/.local/bin:$PATH"
         if [ $pre_has_dotenv -eq 0 ] && is_python_dotenv_installed; then
@@ -434,13 +473,22 @@ dependencies_main() {
     else
       echo "Using system Python"
       
-      if [ "$NEED_PODMAN_COMPOSE_PIP" = true ]; then
-        echo "Installing podman-compose via pip with --break-system-packages"
-        ensure_pip
-        pre_has_dotenv=0
-        if is_python_dotenv_installed; then pre_has_dotenv=1; fi
-        pip3 install --user --break-system-packages podman-compose || pip install --user --break-system-packages podman-compose
-        INSTALLED_PIP_PACKAGES+=("podman-compose")
+      if [ "$NEED_COMPOSE_PIP" = true ]; then
+        if [ "$USE_DOCKER" -eq 1 ]; then
+          echo "Installing Docker Compose via pip with --break-system-packages"
+          ensure_pip
+          pre_has_dotenv=0
+          if is_python_dotenv_installed; then pre_has_dotenv=1; fi
+          pip3 install --user --break-system-packages docker-compose || pip install --user --break-system-packages docker-compose
+          INSTALLED_PIP_PACKAGES+=("docker-compose")
+        else
+          echo "Installing Podman Compose via pip with --break-system-packages"
+          ensure_pip
+          pre_has_dotenv=0
+          if is_python_dotenv_installed; then pre_has_dotenv=1; fi
+          pip3 install --user --break-system-packages podman-compose || pip install --user --break-system-packages podman-compose
+          INSTALLED_PIP_PACKAGES+=("podman-compose")
+        fi
         export PATH="$HOME/.local/bin:$PATH"
         if [ $pre_has_dotenv -eq 0 ] && is_python_dotenv_installed; then
           INSTALLED_PIP_PACKAGES+=("python-dotenv")
@@ -688,6 +736,33 @@ start_linoffice() {
 }
 
 ##################################################
+# Parse command line arguments
+##################################################
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --docker)
+            USE_DOCKER=1
+            echo "docker" > "$ENGINE_FILE"
+            shift
+            ;;
+        --help)
+            echo "Usage: $0 [--docker]"
+            echo "Options:"
+            echo "  --docker     Use Docker instead of Podman for container management"
+            echo "  --help       Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+##################################################
 # Main logic
 ##################################################
 
@@ -695,7 +770,21 @@ read -p "Welcome to the LinOffice installer. We will check and install dependenc
 if [[ "$confirmation" == "y" || "$confirmation" == "Y" ]]; then
   dependencies_main "$@"
   download_latest
-  start_linoffice
+  
+  # Pass --docker flag to setup.sh if it was used
+  SETUP_ARGS=""
+  if [ "$USE_DOCKER" -eq 1 ]; then
+    SETUP_ARGS="--docker"
+  fi
+  
+  # Run setup.sh with the appropriate flags
+  if [ -f "./setup.sh" ]; then
+    echo "Running setup with container engine choice..."
+    ./setup.sh $SETUP_ARGS
+  else
+    echo "setup.sh not found in current directory"
+    start_linoffice
+  fi
 else
   echo "Cancelled."
   exit 1
