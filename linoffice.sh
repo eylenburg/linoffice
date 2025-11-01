@@ -885,7 +885,7 @@ function waRunCommand() {
                 -wallpaper \
                 $RDP_KBD \
                 $RDP_FLAGS \
-                /app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\UpdateWindows.ps1' \
+                /app:program:powershell.exe,cmd:"-ExecutionPolicy Bypass -File C:\\OEM\\UpdateWindows.ps1" \
                 /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
         else
             podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
@@ -898,7 +898,7 @@ function waRunCommand() {
                 -wallpaper \
                 $RDP_KBD \
                 $RDP_FLAGS \
-                /app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\UpdateWindows.ps1' \
+                /app:program:powershell.exe,cmd:"-ExecutionPolicy Bypass -File C:\\OEM\\UpdateWindows.ps1" \
                 /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
         fi
     
@@ -920,7 +920,7 @@ function waRunCommand() {
                 -wallpaper \
                 $RDP_KBD \
                 $RDP_FLAGS \
-                /app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\RegistryOverride.ps1' \
+                /app:program:powershell.exe,cmd:"-ExecutionPolicy Bypass -File C:\\OEM\\RegistryOverride.ps1" \
                 /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
         else
             podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
@@ -933,7 +933,7 @@ function waRunCommand() {
                 -wallpaper \
                 $RDP_KBD \
                 $RDP_FLAGS \
-                /app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\RegistryOverride.ps1' \
+                /app:program:powershell.exe,cmd:"-ExecutionPolicy Bypass -File C:\\OEM\\RegistryOverride.ps1" \
                 /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
         fi
     
@@ -955,7 +955,7 @@ function waRunCommand() {
                 -wallpaper \
                 $RDP_KBD \
                 $RDP_FLAGS \
-                /app:program:cmd.exe,cmd:'/c C:\\OEM\\dns_off.bat' \
+                /app:program:cmd.exe,cmd:"/c C:\\OEM\\dns_off.bat" \
                 /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
         else
             podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
@@ -968,7 +968,7 @@ function waRunCommand() {
                 -wallpaper \
                 $RDP_KBD \
                 $RDP_FLAGS \
-                /app:program:cmd.exe,cmd:'/c C:\\OEM\\dns_off.bat' \
+                /app:program:cmd.exe,cmd:"/c C:\\OEM\\dns_off.bat" \
                 /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
         fi
     
@@ -990,7 +990,7 @@ function waRunCommand() {
                 -wallpaper \
                 $RDP_KBD \
                 $RDP_FLAGS \
-                /app:program:cmd.exe,cmd:'/c C:\\OEM\\dns_on.bat' \
+                /app:program:cmd.exe,cmd:"/c C:\\OEM\\dns_on.bat" \
                 /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
         else
             podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
@@ -1003,7 +1003,7 @@ function waRunCommand() {
                 -wallpaper \
                 $RDP_KBD \
                 $RDP_FLAGS \
-                /app:program:cmd.exe,cmd:'/c C:\\OEM\\dns_on.bat' \
+                /app:program:cmd.exe,cmd:"/c C:\\OEM\\dns_on.bat" \
                 /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
         fi
     

@@ -50,15 +50,15 @@ detect_package_manager() {
     check_immutable_dependencies "rpm-ostree"
     return
   elif command -v transactional-update >/dev/null 2>&1; then
-    echo "Detected openSUSE MicroOS or anotherimmutable system using transactional-update"
+    echo "Detected openSUSE MicroOS or another immutable system using transactional-update"
     check_immutable_dependencies "transactional-update"
     return
   fi
 
-  # steamos case
+  # Other known immutable distros
   case "$DISTRO_ID" in
-    steamos)
-      echo "SteamOS: $DISTRO_ID"
+    steamos|kde-linux)
+      echo "Immutable distribution without usable system package manager detected: $DISTRO_ID"
       # Set flag to use pip-based installation and set dummy package manager
       USE_IMMUTABLE=1
       PKG_MGR="unknown"

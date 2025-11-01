@@ -1293,7 +1293,7 @@ function check_available() {
 			/v:127.0.0.1
 			/port:3388
 			"${arg_flags[@]}"
-			/app:program:cmd.exe,cmd:'/c tsdiscon'
+			/app:program:cmd.exe,cmd:"/c tsdiscon"
 		)
 		
 		# Execute command based on type
@@ -1526,7 +1526,7 @@ function check_success() {
 	if [ "$FREERDP_NETWORK_LAN" = true ]; then
 		cmd_args+=("/network:lan")
 	fi
-	cmd_args+=(/app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\FirstRDPRun.ps1')
+	cmd_args+=(/app:program:powershell.exe,cmd:"-ExecutionPolicy Bypass -File C:\\OEM\\FirstRDPRun.ps1")
 
 	# Retry loop for FreeRDP connection
 	while [ $retry_count -lt $max_retries ]; do
@@ -1749,7 +1749,7 @@ try_install_office() {
         /v:127.0.0.1
         /port:3388
         /timeout:$connection_timeout
-        /app:program:powershell.exe,cmd:'-ExecutionPolicy Bypass -File C:\\OEM\\InstallOffice.ps1'
+        /app:program:powershell.exe,cmd:"-ExecutionPolicy Bypass -File C:\\OEM\\InstallOffice.ps1"
     )
 
     # Add flags from successful connection test
