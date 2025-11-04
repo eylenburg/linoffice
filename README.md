@@ -306,6 +306,7 @@ LinOffice searches and deletes these lock files when the last Office process is 
 These are the files that are part of LinOffice and their functions:
 
 <details><summary>File list</summary>
+    
 - `quickstart.sh`: Script that installs all required dependencies (new ones are remembered in `~/.local/share/linoffice/installed_dependencies`, downloads the latest version of LinOffice from GitHub and then launches `src/gui/linoffice.py`, which will most likely end up running the graphical installer
 - `src/setup.sh`: Install script for LinOffice. Checks requirements are met and dependencies are installed, calls `locale_lang.sh` and `locale_reg.sh` to set various location settings, downloads Windows and sets up a Windows VM, installs Office in the VM, tries to connect via RDP, executes `FirstRDPRun.ps1` script in Windows, and creates app launchers.
 - `src/linoffice.sh`: Main script that is used when running LinOffice. It manages the Podman container (e.g. start or unsuspend) and runs the correct FreeRDP command for the Office (and other) applications.
@@ -335,6 +336,7 @@ These are the files that are part of LinOffice and their functions:
 - `src/config/oem/dns_on.bat`: Undo what `dns_off.bat` did.
 - `src/config/oem/registry/explorer_settings.reg`: Various settings for Windows Explorer, e.g. enabling file extensions by default. These settings are applied by `install.bat`.
 - `src/config/oem/registry/linoffice.reg`: Various Windows settings, e.g. allow any app to be run as RemoteApp via RDP, disable automatic logon, allow long file paths, prevent Windows Update from rebooting the machine etc. These settings are applied by `install.bat`.
+    
 </details>
 
 # Legal information
