@@ -215,69 +215,52 @@ else
 fi
 
 # Ask to delete the Windows container and its data
+# Detect container engine (Docker or Podman)
+ENGINE_FILE="$SCRIPT_DIR/gui/engine.txt"
+if [[ -f "$ENGINE_FILE" ]]; then
+  ENGINE=$(cat "$ENGINE_FILE" | tr -d '[:space:]')
+else
+  ENGINE="podman"
+fi
+
+# Ask to delete the container and its data
 read -p "Do you want to delete the Windows container and all its data as well? (y/n): " confirm
 if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
-  if ! command -v podman &> /dev/null; then
-    echo "Error: Podman is not installed or not accessible."
+  if ! command -v "$ENGINE" &> /dev/null; then
+    echo "Error: $ENGINE is not installed or not accessible."
   else
-    # Stop and remove the LinOffice container
-    # Check the current status of the container
-    CONTAINER_STATUS=$(podman inspect --format='{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null)
+    CONTAINER_STATUS=$($ENGINE inspect --format='{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null)
 
-    # Ensure COMPOSE_COMMAND is set to a working value
-    # First try the system podman-compose if it exists and is executable
-    if [[ -x "/usr/bin/podman-compose" ]]; then
-        COMPOSE_COMMAND="/usr/bin/podman-compose"
-    elif command -v podman-compose &>/dev/null; then
-        COMPOSE_COMMAND="podman-compose"
-    else
-        echo "ERROR: No working podman-compose found"
-    fi
-
-    # If the container is paused, it must be un-paused first to shut down cleanly
     if [[ "$CONTAINER_STATUS" == "paused" ]]; then
-        echo "Container is paused, unpausing to allow clean shutdown..."
-        if [[ -n "$COMPOSE_COMMAND" ]]; then
-          "$COMPOSE_COMMAND" --file "$COMPOSE_PATH" unpause &>/dev/null
-        else
-          echo "Skipping podman-compose unpause: no podman-compose available."
-        fi
-        sleep 2 # Give it a moment to wake up before stopping
+      echo "Container is paused, unpausing..."
+      $ENGINE unpause "$CONTAINER_NAME" &>/dev/null
+      sleep 2
     fi
 
-    # Now, if the container is running (or was just un-paused), stop it
     if [[ "$CONTAINER_STATUS" == "running" || "$CONTAINER_STATUS" == "paused" ]]; then
-        echo "Sending stop command... (this may take up to 2 minutes)"
-        podman stop "$CONTAINER_NAME" &>/dev/null
+      echo "Stopping container..."
+      $ENGINE stop "$CONTAINER_NAME" &>/dev/null
     else
-        echo "Container is not running."
+      echo "Container is not running."
     fi
 
-    echo "Cleaning up all resources..."
-    # Finally, run 'down' to ensure the stopped container is fully removed.
-    if [[ -n "$COMPOSE_COMMAND" ]]; then
-      "$COMPOSE_COMMAND" --file "$COMPOSE_PATH" down --remove-orphans &>/dev/null
+    echo "Removing container..."
+    $ENGINE rm -f "$CONTAINER_NAME" &>/dev/null || echo "Error: Could not delete container."
+
+    echo "Removing associated data..."
+    if [[ "$ENGINE" == "podman" ]]; then
+      $ENGINE volume rm linoffice_data &>/dev/null || true
     else
-      echo "Skipping podman-compose down: no podman-compose available."
+      $ENGINE volume prune -f &>/dev/null
+      $ENGINE system prune -a -f &>/dev/null
     fi
 
-    # Finally, delete the container
-    if ! podman rm -f "$CONTAINER_NAME" &> /dev/null; then
-      echo "Error: Could not delete the Podman container."
-    else
-      echo "Deleted "$CONTAINER_NAME" container."
-    fi
-
-    # Remove the linoffice_data volume
-    if ! podman volume rm linoffice_data &> /dev/null; then
-      echo "Error: Could not delete the linoffice_data volume."
-    else
-      echo "Deleted linoffice_data volume."
-    fi
+    echo "Cleanup completed for $ENGINE."
   fi
 else
   echo "Windows container and data deletion aborted."
 fi
+
 
 # Check if APPDATA_PATH exists and delete if it does
 if [[ -d "$APPDATA_PATH" ]]; then
