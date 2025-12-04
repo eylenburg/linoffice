@@ -846,7 +846,7 @@ function waRunCommand() {
             -wallpaper \
             $RDP_KBD \
             $RDP_FLAGS \
-            /app:program:powershell.exe,cmd:"-ExecutionPolicy Bypass -File C:\\OEM\\UpdateWindows.ps1" \
+            /app:program:"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",cmd:"-ExecutionPolicy Bypass -File C:\\OEM\\UpdateWindows.ps1" \
             /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
     
         # Capture the process ID.
@@ -866,7 +866,7 @@ function waRunCommand() {
             -wallpaper \
             $RDP_KBD \
             $RDP_FLAGS \
-            /app:program:powershell.exe,cmd:"-ExecutionPolicy Bypass -File C:\\OEM\\RegistryOverride.ps1" \
+            /app:program:"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",cmd:"-ExecutionPolicy Bypass -File C:\\OEM\\RegistryOverride.ps1" \
             /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
     
         # Capture the process ID.
@@ -886,7 +886,7 @@ function waRunCommand() {
             -wallpaper \
             $RDP_KBD \
             $RDP_FLAGS \
-            /app:program:cmd.exe,cmd:"/c C:\\OEM\\dns_off.bat" \
+            /app:program:"C:\Windows\System32\cmd.exe",cmd:"/c C:\\OEM\\dns_off.bat" \
             /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
     
         # Capture the process ID.
@@ -906,7 +906,7 @@ function waRunCommand() {
             -wallpaper \
             $RDP_KBD \
             $RDP_FLAGS \
-            /app:program:cmd.exe,cmd:"/c C:\\OEM\\dns_on.bat" \
+            /app:program:"C:\Windows\System32\cmd.exe",cmd:"/c C:\\OEM\\dns_on.bat" \
             /v:"$RDP_IP:$RDP_PORT" &>/dev/null &
     
         # Capture the process ID.

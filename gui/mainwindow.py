@@ -446,12 +446,45 @@ class ToolsWindow(QMainWindow):
         if self.main_window:
             self.ui.pushButton_updateself.clicked.connect(self.run_self_updater)
             self.ui.pushButton_update.clicked.connect(lambda: self.main_window.launch_linoffice_app('update'))
-            self.ui.pushButton_powershell.clicked.connect(lambda: self.main_window.launch_linoffice_app('manual', 'powershell.exe'))
-            self.ui.pushButton_regedit.clicked.connect(lambda: self.main_window.launch_linoffice_app('manual', 'regedit.exe'))
-            self.ui.pushButton_cmd.clicked.connect(lambda: self.main_window.launch_linoffice_app('manual', 'cmd.exe'))
-            self.ui.pushButton_explorer.clicked.connect(lambda: self.main_window.launch_linoffice_app('manual', 'explorer.exe'))
-            self.ui.pushButton_access.clicked.connect(lambda: self.main_window.launch_linoffice_app('manual', 'msaccess.exe'))
-            self.ui.pushButton_publisher.clicked.connect(lambda: self.main_window.launch_linoffice_app('manual', 'mspub.exe'))
+            # For "manual" mode we must pass the raw Windows path without extra quotes.
+            # The Bash script already wraps $2 appropriately for FreeRDP, so including
+            # quotes here would result in double quoting and break the command.
+            self.ui.pushButton_powershell.clicked.connect(
+                lambda: self.main_window.launch_linoffice_app(
+                    'manual',
+                    r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe',
+                )
+            )
+            self.ui.pushButton_regedit.clicked.connect(
+                lambda: self.main_window.launch_linoffice_app(
+                    'manual',
+                    r'C:\Windows\regedit.exe',
+                )
+            )
+            self.ui.pushButton_cmd.clicked.connect(
+                lambda: self.main_window.launch_linoffice_app(
+                    'manual',
+                    r'C:\Windows\System32\cmd.exe',
+                )
+            )
+            self.ui.pushButton_explorer.clicked.connect(
+                lambda: self.main_window.launch_linoffice_app(
+                    'manual',
+                    r'C:\Windows\explorer.exe',
+                )
+            )
+            self.ui.pushButton_access.clicked.connect(
+                lambda: self.main_window.launch_linoffice_app(
+                    'manual',
+                    r'C:\Program Files\Microsoft Office\root\Office16\MSACCESS.EXE',
+                )
+            )
+            self.ui.pushButton_publisher.clicked.connect(
+                lambda: self.main_window.launch_linoffice_app(
+                    'manual',
+                    r'C:\Program Files\Microsoft Office\root\Office16\MSPUB.EXE',
+                )
+            )
             self.ui.pushButton_windows_rdp.clicked.connect(lambda: self.show_warning_dialog_rdp(lambda: self.main_window.launch_linoffice_app('windows')))
             self.ui.pushButton_windows_vnc.clicked.connect(lambda: self.show_warning_dialog_vnc(self.open_vnc_in_browser))
 
