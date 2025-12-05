@@ -131,6 +131,38 @@ use_venv() {
   fi
 }
 
+validate_podman_compose() {
+  local candidate="$1"
+  local resolved="$candidate"
+
+  if [[ "$candidate" != /* ]]; then
+    resolved=$(command -v "$candidate" 2>/dev/null || true)
+  fi
+
+  if [[ -z "$resolved" || ! -f "$resolved" ]]; then
+    return 1
+  fi
+
+  # If it's a script, make sure its interpreter exists
+  local shebang
+  shebang=$(head -n1 "$resolved" 2>/dev/null || true)
+  if [[ "$shebang" == "#!"* ]]; then
+    local interpreter="${shebang#\#!}"
+    interpreter=${interpreter%% *}
+    if [[ ! -x "$interpreter" ]]; then
+      print_info "podman-compose at $resolved points to missing interpreter: $interpreter"
+      return 1
+    fi
+  fi
+
+  if ! "$candidate" --version >/dev/null 2>&1; then
+    print_info "podman-compose at $resolved failed to run"
+    return 1
+  fi
+
+  return 0
+}
+
 use_venv
 
 # Function to display usage information
@@ -358,13 +390,26 @@ function check_requirements() {
     fi
 
     if [[ "$USE_VENV" -eq 0 ]]; then
-        # Use system podman-compose, not the one in ~/.local/bin which might be broken
-        if [[ -x "/usr/bin/podman-compose" ]]; then
+        # Use system podman-compose, and avoid stale user-level wrappers
+        if [[ -x "/usr/bin/podman-compose" ]] && validate_podman_compose "/usr/bin/podman-compose"; then
             COMPOSE_COMMAND="/usr/bin/podman-compose"
             print_success "Using system podman-compose: /usr/bin/podman-compose"
         elif command -v podman-compose &> /dev/null; then
-            COMPOSE_COMMAND="podman-compose"
-            print_success "Using podman-compose from PATH: $(command -v podman-compose)"
+            PODMAN_COMPOSE_PATH=$(command -v podman-compose)
+            if validate_podman_compose "$PODMAN_COMPOSE_PATH"; then
+                COMPOSE_COMMAND="$PODMAN_COMPOSE_PATH"
+                print_success "Using podman-compose from PATH: $PODMAN_COMPOSE_PATH"
+            elif [[ -x "/usr/bin/podman-compose" ]] && validate_podman_compose "/usr/bin/podman-compose"; then
+                COMPOSE_COMMAND="/usr/bin/podman-compose"
+                print_success "Found broken podman-compose at $PODMAN_COMPOSE_PATH, falling back to /usr/bin/podman-compose"
+                print_info "You can remove the stale file with: rm -f \"$PODMAN_COMPOSE_PATH\""
+            else
+                exit_with_error "podman-compose is present at $PODMAN_COMPOSE_PATH but cannot run (likely a stale venv-generated wrapper).
+
+        HOW TO FIX:
+        1. Remove the broken wrapper: rm -f $PODMAN_COMPOSE_PATH
+        2. Reinstall podman-compose (e.g. dnf install podman-compose, apt install podman-compose, or pip3 install --user podman-compose)"
+            fi
         else
             exit_with_error "podman-compose is not installed.
 
@@ -451,7 +496,9 @@ function check_requirements() {
         fi
     fi
 
-    COMPOSE_VERSION=$($COMPOSE_COMMAND --version)
+    if ! COMPOSE_VERSION=$($COMPOSE_COMMAND --version 2>/dev/null); then
+        exit_with_error "podman-compose command '$COMPOSE_COMMAND' failed to run. Please reinstall podman-compose or remove stale copies in ~/.local/bin."
+    fi
     print_success "podman-compose is installed: $COMPOSE_VERSION"
 
     # Check if FreeRDP is available

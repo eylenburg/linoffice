@@ -410,13 +410,11 @@ dependencies_main() {
       
       if [ "$NEED_PODMAN_COMPOSE_PIP" = true ]; then
         echo "Installing podman-compose via pip in virtual environment"
-        ensure_pip
         pre_has_dotenv=0
         if is_python_dotenv_installed; then pre_has_dotenv=1; fi
-        pip3 install --user podman-compose || pip install --user podman-compose
+        "$VENV_PATH/bin/pip" install podman-compose
         INSTALLED_PIP_PACKAGES+=("podman-compose")
         PIP_VENV=1
-        export PATH="$HOME/.local/bin:$PATH"
         if [ $pre_has_dotenv -eq 0 ] && is_python_dotenv_installed; then
           INSTALLED_PIP_PACKAGES+=("python-dotenv")
         fi
@@ -424,8 +422,7 @@ dependencies_main() {
       
       if [ "$NEED_PYSIDE6_PIP" = true ]; then
         echo "Installing PySide6 via pip in virtual environment"
-        ensure_pip
-        pip3 install --user PySide6 || pip install --user PySide6
+        "$VENV_PATH/bin/pip" install PySide6
         INSTALLED_PIP_PACKAGES+=("PySide6")
         PIP_VENV=1
       fi
