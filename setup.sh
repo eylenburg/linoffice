@@ -91,7 +91,7 @@ use_venv() {
   local activate_script="$venv_dir/bin/activate"
 
   print_info "Checking for virtual environment at: $venv_dir"
-  
+
   if [[ -f "$activate_script" ]]; then
     print_info "Virtual environment found at $venv_dir"
     source "$activate_script"
@@ -101,29 +101,42 @@ use_venv() {
     PYTHON_PATH="$venv_dir/bin/python3"
     print_info "Virtual environment Python: $PYTHON_PATH"
 
-    USER_SITE_PATH=$($PYTHON_PATH -m site | grep USER_SITE | awk -F"'" '{print $2}')
-    PODMAN_COMPOSE_BIN=$USER_SITE_PATH/podman_compose.py
-
-    if [[ -f "$PODMAN_COMPOSE_BIN" ]]; then
+    # Prefer the entrypoint inside the venv
+    if [[ -x "$venv_dir/bin/podman-compose" ]]; then
+        PODMAN_COMPOSE_BIN="$venv_dir/bin/podman-compose"
+        COMPOSE_COMMAND="$PODMAN_COMPOSE_BIN"
         print_info "Using podman-compose from virtual environment: $PODMAN_COMPOSE_BIN"
-        COMPOSE_COMMAND="$PYTHON_PATH $PODMAN_COMPOSE_BIN"
+        return 0
+    fi
+
+    # Fallback: module exists in venv but entrypoint missing
+    if "$PYTHON_PATH" - <<'PY' >/dev/null 2>&1
+import importlib.util
+spec = importlib.util.find_spec("podman_compose")
+raise SystemExit(0 if spec else 1)
+PY
+    then
+        COMPOSE_COMMAND="$PYTHON_PATH -m podman_compose"
+        PODMAN_COMPOSE_BIN="$COMPOSE_COMMAND"
+        print_info "Using podman-compose module from virtual environment"
+        return 0
+    fi
+
+    print_info "podman-compose not found in virtual environment"
+    print_info "Checking if virtual environment can access system podman-compose..."
+    
+    # Check if venv can access system podman-compose (due to --system-site-packages)
+    if command -v podman-compose &> /dev/null; then
+        PODMAN_COMPOSE_BIN="$(command -v podman-compose)"
+        COMPOSE_COMMAND="$PODMAN_COMPOSE_BIN"
+        print_info "Virtual environment can access system podman-compose"
         return 0
     else
-        print_info "podman-compose not found in virtual environment user packages at: $PODMAN_COMPOSE_BIN"
-        print_info "Checking if virtual environment can access system podman-compose..."
-        
-        # Check if venv can access system podman-compose (due to --system-site-packages)
-        if command -v podman-compose &> /dev/null; then
-            print_info "Virtual environment can access system podman-compose"
-            COMPOSE_COMMAND="podman-compose"
-            return 0
-        else
-            print_info "podman-compose not available in virtual environment or system"
-            print_info "Will check for system podman-compose instead"
-            # Don't return here - let the system check handle it
-            USE_VENV=0  # Reset to system mode since venv doesn't have podman-compose
-            return 1
-        fi
+        print_info "podman-compose not available in virtual environment or system"
+        print_info "Will check for system podman-compose instead"
+        # Don't return here - let the system check handle it
+        USE_VENV=0  # Reset to system mode since venv doesn't have podman-compose
+        return 1
     fi
   else
     print_info "Virtual environment not found at $venv_dir, using system Python"
@@ -458,14 +471,21 @@ function check_requirements() {
         fi
     else
         # When using virtual environment, check if podman-compose is installed in venv
-        if [[ -f "$PODMAN_COMPOSE_BIN" ]]; then
-            print_success "podman-compose is installed in virtual environment."
-        else
+        if [[ -z "$COMPOSE_COMMAND" ]]; then
             exit_with_error "podman-compose is not installed in virtual environment.
 
         HOW TO FIX:
         The virtual environment needs podman-compose installed.
         Run: $PYTHON_PATH -m pip install podman-compose"
+        fi
+
+        if ! eval "$COMPOSE_COMMAND --version" >/dev/null 2>&1; then
+            exit_with_error "podman-compose command '$COMPOSE_COMMAND' failed to run from virtual environment.
+
+        HOW TO FIX:
+        Reinstall inside the venv: $PYTHON_PATH -m pip install --force-reinstall podman-compose"
+        else
+            print_success "podman-compose is installed in virtual environment: $COMPOSE_COMMAND"
         fi
         
         # Check if python-dotenv is installed in virtual environment (dependency of podman-compose)
@@ -1252,7 +1272,7 @@ function check_available() {
 
 		# 6) /nsc variant
 		for c in "${candidates[@]}"; do
-			if _run_attempt "$c" "/gfx:off /nsc"; then
+			if _run_attempt "$c" "/gfx:off" "/nsc"; then
 				FREERDP_COMMAND="$c"
 				FREERDP_NSC=true
 				update_config_file
@@ -1263,7 +1283,7 @@ function check_available() {
 		# 7) All together (xwayland, /sec:rdp, /network:lan, /gfx:off /nsc)
 		if [ "$on_wayland" = true ]; then
 			for c in "${candidates[@]}"; do
-				if _run_attempt "$c" "XWAYLAND" "/sec:rdp" "/network:lan" "/gfx:off /nsc"; then
+				if _run_attempt "$c" "XWAYLAND" "/sec:rdp" "/network:lan" "/gfx:off" "/nsc"; then
 					FREERDP_COMMAND="$c"
 					FREERDP_XWAYLAND=true
 					FREERDP_SEC_RDP=true
@@ -1275,7 +1295,7 @@ function check_available() {
 			done
 		else
 			for c in "${candidates[@]}"; do
-				if _run_attempt "$c" "/sec:rdp" "/network:lan" "/gfx:off /nsc"; then
+				if _run_attempt "$c" "/sec:rdp" "/network:lan" "/gfx:off" "/nsc"; then
 					FREERDP_COMMAND="$c"
 					FREERDP_SEC_RDP=true
 					FREERDP_NETWORK_LAN=true
