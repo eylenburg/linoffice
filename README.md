@@ -83,7 +83,9 @@ All Linux distributions are supported.
 
 ## Quickinstall
 
-To download and install LinOffice and all the necessary dependencies, run this in a terminal:
+Note: if you want to customise the installation or Windows version, have a look at the [manual installation](#manual-install).
+
+To download and install LinOffice and all the necessary dependencies using default settings, run this in a terminal:
 
 ```
 curl -sSL https://github.com/eylenburg/linoffice/raw/refs/heads/main/quickstart.sh -o quickstart.sh && chmod +x quickstart.sh && ./quickstart.sh
@@ -126,24 +128,24 @@ FreeRDP can also be installed as a [Flatpak](https://flathub.org/apps/com.freerd
 
 ### Run the installer
 
-First, install the dependencies (see above).
+0. Make sure that you have **installed all the dependencies** (see above).
+1. **Download this repo** (e.g. [release version](https://github.com/eylenburg/linoffice/releases) or [latest git version](https://github.com/eylenburg/linoffice/archive/refs/heads/main.zip))
+2. **Unzip and save** in a convenient folder (e.g. `~/.local/bin/linoffice`)
+3. Optional: Change some settings in `config/compose.yaml.default` or `config/linoffice.conf`
 
-Then:
-1. Download this repo (e.g. [release version](https://github.com/eylenburg/linoffice/releases) or [latest git version](https://github.com/eylenburg/linoffice/archive/refs/heads/main.zip))
-2. Unzip and save in a convenient folder (e.g. `~/.local/bin/linoffice`)
-3. Either run the setup script (`chmod +x setup.sh && ./setup.sh`) or start the GUI which will automatically set things up (`python3 gui/linoffice.py`)
+<details><summary><strong>Don't want to use Windows 11?</strong></summary>
 
-The installation should do everything automatically but will take quite a while. You need to download about 8 GB in total and wait until both Windows and Office are installed. In my experience, on a modern laptop (2023 mid-range AMD Ryzen CPU) and with fast Internet (250 Mbps download), it took about 15 minutes all in (breakdown: 3 minutes Windows download, 8 minutes Windows install, 4 minutes Office download and install).
-
-If the setup succeeds without issues, please [share your system setup](https://github.com/eylenburg/linoffice/issues/15) which will be very helpful in order to know where LinOffice works out of the box. 
-
-<details><summary>Notes on the Windows version</summary>
-
-By default, Windows 11 Pro will be installed. If you want, you can also install Windows 10, which should be a bit snappier. To do that, replace `VERSION: "11"` with `VERSION: "10"` in the `config/compose.yaml.default` file _before_ running `setup.sh`. Microsoft will end mainstream support for Windows 10 in October 2025, but after the installation you can use Microsoft Activation Script (MAS) to extend Windows 10 updates until 2028.
+By default, Windows 11 Pro will be installed. If you want, you can also install Windows 10, which should be a bit snappier. To do that, replace `VERSION: "11"` with `VERSION: "10"` in the `config/compose.yaml.default` file _before_ running `setup.sh`. Microsoft will end mainstream support for Windows 10 in October 2025, but after the installation you can use Microsoft Activation Script (MAS) to extend Windows 10 updates until 2028. You can also use Windows 10 LTSC 2021 (still getting security updates until 2032) using `VERSION: "https://archive.org/download/Windows10EnterpriseLTSC202164Bit/en-us_windows_10_enterprise_ltsc_2021_x64_dvd_d289cf96.iso"`.
 
 Unfortunately it is not allowed to redistribute Microsoft software, otherwise I would have just prepared a pre-made VM with Office installed, which would cut down the installation time and make this whole project much simpler. At the moment, the script downloads Windows, installs it into a VM, then downloads Office and installs it in the VM, as well as various other tweaks to integrate Office.
 
 </details>
+
+4. Finally, **either run the setup script** (`chmod +x setup.sh && ./setup.sh`) **or start the GUI** which will automatically set things up (`python3 gui/linoffice.py`)
+
+The installation should do everything automatically but will take quite a while. You need to download about 8 GB in total and wait until both Windows and Office are installed. In my experience, on a modern laptop (2023 mid-range AMD Ryzen CPU) and with fast Internet (250 Mbps download), it took about 15 minutes all in (breakdown: 3 minutes Windows download, 8 minutes Windows install, 4 minutes Office download and install).
+
+If the setup succeeds without issues, please [share your system setup](https://github.com/eylenburg/linoffice/issues/15) which will be very helpful in order to know where LinOffice works out of the box. 
 
 ## Updating
 
