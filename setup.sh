@@ -651,14 +651,14 @@ function check_requirements() {
 	# Check Podman storage configuration and whether overlay storage driver is used, as some users had problems here
 	print_info "Checking Podman storage configuration"
 	driver=$(podman info --format '{{.Store.GraphDriverName}}' 2>/dev/null)
-	error_msg="Podman is not using overlay storage driver or there's a configuration issue.
+	error_msg="Podman is not using overlay or btrfs as the storage driver or there's a configuration issue.
 	HOW TO FIX:
 	
 	    mkdir -p ~/.config/containers
 	
 	    cat > ~/.config/containers/storage.conf <<EOF
 	[storage]
-	driver = \"overlay\"
+	driver = \"overlay\" # or \"btrfs\"
 	runroot = \"/run/user/\$(id -u)/containers\"
 	graphroot = \"\$HOME/.local/share/containers/storage\"
 	EOF
@@ -667,7 +667,7 @@ function check_requirements() {
 	
 	Then verify with:
 	    podman info --format '{{.Store.GraphDriverName}}'
-	Expected: overlay"
+	Expected: overlay or btrfs"
 	
 	if ! echo "$driver" | grep -qE "overlay|btrfs"; then
 	    if [ -z "$driver" ]; then
