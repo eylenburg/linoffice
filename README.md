@@ -145,7 +145,7 @@ Unfortunately it is not allowed to redistribute Microsoft software, otherwise I 
 
 The installation should do everything automatically but will take quite a while. You need to download about 8 GB in total and wait until both Windows and Office are installed. In my experience, on a modern laptop (2023 mid-range AMD Ryzen CPU) and with fast Internet (250 Mbps download), it took about 15 minutes all in (breakdown: 3 minutes Windows download, 8 minutes Windows install, 4 minutes Office download and install).
 
-If the setup succeeds without issues, please [share your system setup](https://github.com/eylenburg/linoffice/issues/15) which will be very helpful in order to know where LinOffice works out of the box. 
+If the setup succeeds without issues, please [share your system setup](https://github.com/eylenburg/linoffice/issues/16) which will be very helpful in order to know where LinOffice works out of the box. 
 
 ## Updating
 
