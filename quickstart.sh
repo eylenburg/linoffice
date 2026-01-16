@@ -381,6 +381,25 @@ dependencies_main() {
     fi
   fi
 
+  # Check if python-dotenv needs to be installed (dependency of podman-compose)
+  NEED_PYTHON_DOTENV_PIP=false
+  if ! python3 -c "import dotenv" 2>/dev/null; then
+    if [ "$USE_IMMUTABLE" -eq 1 ]; then
+      echo "python-dotenv not available, will install via pip for immutable system"
+      NEED_PYTHON_DOTENV_PIP=true
+    else
+      try_install_any python3-python-dotenv python-python-dotenv python3-dotenv python-dotenv || true
+      if ! python3 -c "import dotenv" 2>/dev/null; then
+        echo "python-dotenv not available via package manager, will install via pip"
+        NEED_PYTHON_DOTENV_PIP=true
+      fi
+    fi
+  else
+    if [ "$USE_IMMUTABLE" -eq 1 ]; then
+      echo "python-dotenv already available via system package manager"
+    fi
+  fi
+
   # Check if PySide6 needs to be installed via pip
   NEED_PYSIDE6_PIP=false
   if ! python3 -c "import PySide6" 2>/dev/null; then
@@ -401,21 +420,29 @@ dependencies_main() {
   fi
 
   # Install Python dependencies via pip if needed
-  if [ "$NEED_PODMAN_COMPOSE_PIP" = true ] || [ "$NEED_PYSIDE6_PIP" = true ]; then
+  if [ "$NEED_PODMAN_COMPOSE_PIP" = true ] || [ "$NEED_PYSIDE6_PIP" = true ] || [ "$NEED_PYTHON_DOTENV_PIP" = true ]; then
     echo "Setting up Python environment for pip installations..."
     
     if use_venv; then
       echo "Using virtual environment for Python dependencies"
       source "$VENV_PATH/bin/activate"
       
+      if [ "$NEED_PYTHON_DOTENV_PIP" = true ]; then
+        echo "Installing python-dotenv via pip in virtual environment"
+        "$VENV_PATH/bin/pip" install python-dotenv
+        INSTALLED_PIP_PACKAGES+=("python-dotenv")
+        PIP_VENV=1
+      fi
+      
       if [ "$NEED_PODMAN_COMPOSE_PIP" = true ]; then
         echo "Installing podman-compose via pip in virtual environment"
-        pre_has_dotenv=0
-        if is_python_dotenv_installed; then pre_has_dotenv=1; fi
         "$VENV_PATH/bin/pip" install podman-compose
         INSTALLED_PIP_PACKAGES+=("podman-compose")
         PIP_VENV=1
-        if [ $pre_has_dotenv -eq 0 ] && is_python_dotenv_installed; then
+        # Check if python-dotenv was installed as a dependency
+        if ! is_python_dotenv_installed && [ "$NEED_PYTHON_DOTENV_PIP" != true ]; then
+          echo "Installing python-dotenv (dependency of podman-compose) via pip in virtual environment"
+          "$VENV_PATH/bin/pip" install python-dotenv
           INSTALLED_PIP_PACKAGES+=("python-dotenv")
         fi
       fi
@@ -431,15 +458,23 @@ dependencies_main() {
     else
       echo "Using system Python"
       
+      if [ "$NEED_PYTHON_DOTENV_PIP" = true ]; then
+        echo "Installing python-dotenv via pip with --break-system-packages"
+        ensure_pip
+        pip3 install --user --break-system-packages python-dotenv || pip install --user --break-system-packages python-dotenv
+        INSTALLED_PIP_PACKAGES+=("python-dotenv")
+      fi
+      
       if [ "$NEED_PODMAN_COMPOSE_PIP" = true ]; then
         echo "Installing podman-compose via pip with --break-system-packages"
         ensure_pip
-        pre_has_dotenv=0
-        if is_python_dotenv_installed; then pre_has_dotenv=1; fi
         pip3 install --user --break-system-packages podman-compose || pip install --user --break-system-packages podman-compose
         INSTALLED_PIP_PACKAGES+=("podman-compose")
         export PATH="$HOME/.local/bin:$PATH"
-        if [ $pre_has_dotenv -eq 0 ] && is_python_dotenv_installed; then
+        # Check if python-dotenv was installed as a dependency
+        if ! is_python_dotenv_installed && [ "$NEED_PYTHON_DOTENV_PIP" != true ]; then
+          echo "Installing python-dotenv (dependency of podman-compose) via pip"
+          pip3 install --user --break-system-packages python-dotenv || pip install --user --break-system-packages python-dotenv
           INSTALLED_PIP_PACKAGES+=("python-dotenv")
         fi
       fi

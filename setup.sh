@@ -461,7 +461,7 @@ function check_requirements() {
         If you don't have pip, you can install it with your package manager.
         Ubuntu/Debian: sudo apt install python-dotenv
         Fedora: sudo dnf install python-dotenv
-        OpenSUSE: sudo zypper install python-python-dotenv
+        OpenSUSE: sudo zypper install python3-python-dotenv
         Arch Linux: sudo pacman -S python-dotenv
         
         If the package is installed but not detected, try:
