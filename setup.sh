@@ -161,7 +161,7 @@ validate_podman_compose() {
   shebang=$(head -n1 "$resolved" 2>/dev/null || true)
   if [[ "$shebang" == "#!"* ]]; then
     local interpreter="${shebang#\#!}"
-    interpreter=${interpreter%% *}
+    read -r interpreter _ <<<"${interpreter}"
     if [[ ! -x "$interpreter" ]]; then
       print_info "podman-compose at $resolved points to missing interpreter: $interpreter"
       return 1
