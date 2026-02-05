@@ -160,7 +160,7 @@ You can run the `uninstall.sh` to remove everything or click on the Uninstall bu
 <details><summary>Where are the files saved?</summary>
 
 If you want to manually remove the files:
-- The self-contained folder where you have saved the `linoffice.sh` script
+- The self-contained folder where you have saved the `linoffice.sh` script; this will be `~/.local/bin/linoffice` if you used the Quickstart script to install Linoffice.
 - The appdata folder for temporary files is in `~/.local/share/linoffice`
 - The `.desktop files` (Excel, Onenote, Outlook, Powerpoint, Word) will be created in `~/.local/share/applications`
 - The Podman containers, which include the Windows VM, can be removed with `podman rm -f LinOffice && podman volume rm linoffice_data`
@@ -302,6 +302,24 @@ LinOffice searches and deletes these lock files when the last Office process is 
 ("Backup files" in this case actually refers to all files with the `application/x-trash` mime type.)
 
 </details>
+
+### Changing the password or username for the Windows virtual machine
+
+At the moment, these are hardcoded to `MyWindowsUser` and `MyWindowsPassword` in several files. However, once the setup finishes and you are able to successfully start Office applications via LinOffice, you can change the password or username if you wish to do so.
+
+First, change the password and/or username in Windows. To do this you need to access the "full" Windows session, either via RDP (`./linoffice.sh windows`) or VNC (`127.0.0.1:8006` in the browser, password is `MyWindowsPassword`; log out from Windows when you're done).
+
+Then, find the file `linoffice.sh`, which is most likely located in `~/.local/bin/linoffice/` and edit these lines (currently in line 44-45):
+
+```
+RDP_USER="MyWindowsUser"
+RDP_PASS="MyWindowsPassword"
+```
+
+Make sure they match your newly set Windows password and username.
+
+>[!WARNING]
+>Please note that the setup script (`setup.sh`) currently still expects the original credentials, so if you need to run it again for any reason it may fail after you have changed the password or username.
 
 # For developers
 
