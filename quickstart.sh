@@ -498,12 +498,18 @@ dependencies_main() {
     fi
   fi
 
-# Debian/Ubuntu/Mint: detect if the error "qt.qpa.plugin: Could not load the Qt platform plugin "xcb" in "" even though it was found." occurs when runnin PySide6 program. Then install packages via apt to make it work (these packages are not yet recorded in installed_dependencies).
+# Debian/Ubuntu/Mint: detect if the error "qt.qpa.plugin: Could not load the Qt platform plugin "xcb" in "" even though it was found." occurs when running PySide6 program. Then install packages via apt to make it work (these packages are not yet recorded in installed_dependencies).
 # List of required dependencies: https://stackoverflow.com/questions/68036484/qt-qpa-plugin-could-not-load-the-qt-platform-plugin-xcb-in-even-though-it/76191114#76191114
 if [ "$PKG_MGR" = "apt" ]; then
     if [ "$DISTRO_ID" = "debian" ] || [ "$DISTRO_ID" = "ubuntu" ] || [ "$DISTRO_ID" = "linuxmint" ] || echo "$DISTRO_LIKE" | grep -qiE '(debian|ubuntu)'; then
-        if python3 -c "import PySide6" >/dev/null 2>&1; then
-            __qt_check_output=$(python3 - <<'PY' 2>&1
+        # Use venv python if PySide6 was installed there, otherwise fall back to system python
+        if [ "$USE_VENV" = "1" ] && [ -f "$VENV_PATH/bin/python3" ]; then
+            __python_cmd="$VENV_PATH/bin/python3"
+        else
+            __python_cmd="python3"
+        fi
+        if "$__python_cmd" -c "import PySide6" >/dev/null 2>&1; then
+            __qt_check_output=$("$__python_cmd" - <<'PY' 2>&1
 from PySide6.QtWidgets import QApplication
 try:
     app = QApplication([])
@@ -514,12 +520,14 @@ except Exception:
 PY
 )
             if echo "${__qt_check_output}" | grep -qiE '(qt\.qpa\.plugin|xcb)'; then
-                echo "Detected Qt xcb plugin issue. Installing missing development libraries via apt..."
+                echo "Detected Qt xcb plugin issue. Installing missing libraries via apt..."
                 sudo apt-get update
-                sudo apt-get install -y '^libxcb.*-dev' libx11-xcb-dev libglu1-mesa-dev libxrender-dev libxi-dev libxkbcommon-dev libxkbcommon-x11-dev
+                # libxcb-cursor0 is required by Qt >= 6.5 for the xcb platform plugin
+                sudo apt-get install -y libxcb-cursor0 '^libxcb.*-dev' libx11-xcb-dev libglu1-mesa-dev libxrender-dev libxi-dev libxkbcommon-dev libxkbcommon-x11-dev
             fi
             unset __qt_check_output
         fi
+        unset __python_cmd
     fi
 fi
 
