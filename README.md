@@ -99,6 +99,9 @@ This should automatically install all the required dependencies for most distros
 >[!WARNING]
 >The quickstart script will fail if you are using NixOS, Guix System, Slackware, Gentoo, or Alpine. In this case you will need to do install the dependencies yourself (see below).
 
+>[!WARNING]
+>FreeRDP 3.23 is not working with LinOffice due to a bug. If your distro's version is FreeRDP 3.23, please try to downgrade to 3.22 or upgrade to a newer version if available.
+
 ## Manual install
 
 ### Dependencies
@@ -109,6 +112,9 @@ Dependencies that need to be installed:
 - **FreeRDP**  (v3)
 - **Python3** (optional, for the GUI)
 - **PySide6** (optional, for the GUI)
+
+>[!WARNING]
+>FreeRDP 3.23 is not working with LinOffice due to a bug. If your distro's version is FreeRDP 3.23, please try to downgrade to 3.22 or upgrade to a newer version if available.
 
 <details><summary>How to install the dependencies</summary>
 
