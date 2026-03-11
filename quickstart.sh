@@ -25,6 +25,20 @@ VENV_PATH=""
 # Immutable system support
 USE_IMMUTABLE=0
 
+# Minimal COSMIC helper: extra runtime libs that some users needed
+# before PySide6 behaved correctly. This is only used right before the
+# PySide6 pip install and does not affect other desktops.
+ensure_pyside6_pop_cosmic_runtime_libs() {
+  if ! echo "${XDG_CURRENT_DESKTOP:-}${DESKTOP_SESSION:-}" | grep -qi 'cosmic'; then
+    return 0
+  fi
+  # Reuse the generic package installer so these are tracked in
+  # INSTALLED_PM_PACKAGES like other dependencies.
+  install_pkg libxcb-cursor0 || true
+  install_pkg libxcb-xinerama0 || true
+  install_pkg libxkbcommon-x11-0 || true
+}
+
 ##################################################
 # PART 1: INSTALL DEPENDENCIES
 ##################################################
@@ -482,6 +496,10 @@ dependencies_main() {
       if [ "$NEED_PYSIDE6_PIP" = true ]; then
         echo "Installing PySide6 via pip with --break-system-packages"
         ensure_pip
+        # On Pop!_OS COSMIC, a few extra Qt/XCB runtime libs may be required
+        # before PySide6 works correctly. Install them here in that very
+        # specific environment, without touching other distros.
+        ensure_pyside6_pop_cosmic_runtime_libs
         pip3 install --user --break-system-packages PySide6 || pip install --user --break-system-packages PySide6
         INSTALLED_PIP_PACKAGES+=("PySide6")
         
