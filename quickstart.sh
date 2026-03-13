@@ -25,18 +25,29 @@ VENV_PATH=""
 # Immutable system support
 USE_IMMUTABLE=0
 
-# Minimal COSMIC helper: extra runtime libs that some users needed
-# before PySide6 behaved correctly. This is only used right before the
-# PySide6 pip install and does not affect other desktops.
-ensure_pyside6_pop_cosmic_runtime_libs() {
-  if ! echo "${XDG_CURRENT_DESKTOP:-}${DESKTOP_SESSION:-}" | grep -qi 'cosmic'; then
-    return 0
-  fi
-  # Reuse the generic package installer so these are tracked in
-  # INSTALLED_PM_PACKAGES like other dependencies.
-  install_pkg libxcb-cursor0 || true
-  install_pkg libxcb-xinerama0 || true
-  install_pkg libxkbcommon-x11-0 || true
+ensure_qt_xcb_runtime_deps() {
+  # Qt >= 6.5 may require libxcb-cursor at runtime:
+  # "xcb-cursor0 or libxcb-cursor0 is needed to load the Qt xcb platform plugin."
+  try_install_any libxcb-cursor0 xcb-cursor0 xcb-util-cursor || true
+  try_install_any libxkbcommon-x11-0 libxkbcommon-x11 || true
+  try_install_any libxcb-xinerama0 || true
+
+  # Common Qt xcb plugin runtime deps on Debian/Ubuntu/Mint-like systems.
+  try_install_any libx11-xcb1 || true
+  try_install_any libxcb1 || true
+  try_install_any libxcb-icccm4 || true
+  try_install_any libxcb-image0 || true
+  try_install_any libxcb-keysyms1 || true
+  try_install_any libxcb-randr0 || true
+  try_install_any libxcb-render-util0 || true
+  try_install_any libxcb-shape0 || true
+  try_install_any libxcb-shm0 || true
+  try_install_any libxcb-sync1 || true
+  try_install_any libxcb-xfixes0 || true
+  try_install_any libxrender1 || true
+  try_install_any libxi6 || true
+  try_install_any libgl1 libgl1-mesa-glx || true
+  try_install_any libglu1-mesa || true
 }
 
 ##################################################
@@ -191,7 +202,7 @@ install_pkg() {
       rc=$?
       ;;
     pacman)
-      sudo pacman -Syu --noconfirm "$pkg"
+      sudo pacman -S --noconfirm --needed "$pkg"
       rc=$?
       ;;
     xbps-install)
@@ -463,6 +474,7 @@ dependencies_main() {
       
       if [ "$NEED_PYSIDE6_PIP" = true ]; then
         echo "Installing PySide6 via pip in virtual environment"
+        ensure_qt_xcb_runtime_deps
         "$VENV_PATH/bin/pip" install PySide6
         INSTALLED_PIP_PACKAGES+=("PySide6")
         PIP_VENV=1
@@ -496,10 +508,7 @@ dependencies_main() {
       if [ "$NEED_PYSIDE6_PIP" = true ]; then
         echo "Installing PySide6 via pip with --break-system-packages"
         ensure_pip
-        # On Pop!_OS COSMIC, a few extra Qt/XCB runtime libs may be required
-        # before PySide6 works correctly. Install them here in that very
-        # specific environment, without touching other distros.
-        ensure_pyside6_pop_cosmic_runtime_libs
+        ensure_qt_xcb_runtime_deps
         pip3 install --user --break-system-packages PySide6 || pip install --user --break-system-packages PySide6
         INSTALLED_PIP_PACKAGES+=("PySide6")
         
@@ -515,39 +524,6 @@ dependencies_main() {
       echo "All Python dependencies already available via system package manager"
     fi
   fi
-
-# Debian/Ubuntu/Mint: detect if the error "qt.qpa.plugin: Could not load the Qt platform plugin "xcb" in "" even though it was found." occurs when running PySide6 program. Then install packages via apt to make it work (these packages are not yet recorded in installed_dependencies).
-# List of required dependencies: https://stackoverflow.com/questions/68036484/qt-qpa-plugin-could-not-load-the-qt-platform-plugin-xcb-in-even-though-it/76191114#76191114
-if [ "$PKG_MGR" = "apt" ]; then
-    if [ "$DISTRO_ID" = "debian" ] || [ "$DISTRO_ID" = "ubuntu" ] || [ "$DISTRO_ID" = "linuxmint" ] || echo "$DISTRO_LIKE" | grep -qiE '(debian|ubuntu)'; then
-        # Use venv python if PySide6 was installed there, otherwise fall back to system python
-        if [ "$USE_VENV" = "1" ] && [ -f "$VENV_PATH/bin/python3" ]; then
-            __python_cmd="$VENV_PATH/bin/python3"
-        else
-            __python_cmd="python3"
-        fi
-        if "$__python_cmd" -c "import PySide6" >/dev/null 2>&1; then
-            __qt_check_output=$("$__python_cmd" - <<'PY' 2>&1
-from PySide6.QtWidgets import QApplication
-try:
-    app = QApplication([])
-    print("OK")
-except Exception:
-    import traceback
-    traceback.print_exc()
-PY
-)
-            if echo "${__qt_check_output}" | grep -qiE '(qt\.qpa\.plugin|xcb)'; then
-                echo "Detected Qt xcb plugin issue. Installing missing libraries via apt..."
-                sudo apt-get update
-                # libxcb-cursor0 is required by Qt >= 6.5 for the xcb platform plugin
-                sudo apt-get install -y libxcb-cursor0 '^libxcb.*-dev' libx11-xcb-dev libglu1-mesa-dev libxrender-dev libxi-dev libxkbcommon-dev libxkbcommon-x11-dev
-            fi
-            unset __qt_check_output
-        fi
-        unset __python_cmd
-    fi
-fi
 
   echo "✅ All dependencies installed successfully!"
 
