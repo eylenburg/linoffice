@@ -432,7 +432,7 @@ dependencies_main() {
       echo "PySide6 not available, will install via pip for immutable system"
       NEED_PYSIDE6_PIP=true
     else
-      try_install_any python3-pyside6 python-pyside6 python3-pyside6.qtcore python3-pyside6.qtwidgets python-pyside6.qtuitools || true
+      try_install_any python3-pyside6 python-pyside6 python3-qtpy-pyside6 python3-pyside6.qtcore python3-pyside6.qtwidgets python-pyside6.qtuitools || true
       if ! python3 -c "import PySide6" 2>/dev/null; then
         echo "PySide6 not available via package manager, will install via pip"
         NEED_PYSIDE6_PIP=true
