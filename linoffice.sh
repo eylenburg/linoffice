@@ -431,14 +431,14 @@ waResetSystem() {
     "$COMPOSE_COMMAND" --file "$COMPOSE_PATH" restart &>/dev/null
     
     # Wait for container to restart
-    local max_wait_time=120
+    local max_wait_time=300
     local wait_elapsed=0
     local check_interval=5
     
     dprint "WAITING FOR WINDOWS VM TO RESTART..."
     while (( wait_elapsed < max_wait_time )); do
         if [[ $("$WAFLAVOR" inspect --format='{{.State.Status}}' "$CONTAINER_NAME") == "running" ]]; then
-            if timeout 1 bash -c ">/dev/tcp/$RDP_IP/$RDP_PORT" 2>/dev/null; then
+            if waRdpReady; then
                 dprint "WINDOWS VM RESTARTED SUCCESSFULLY"
                 echo -e "Windows VM restarted successfully."
                 break
@@ -584,6 +584,40 @@ function waGetFreeRDPCommand() {
 
 }
 
+# Name: 'waRdpReady'
+# Role: Return success only when the Windows RDP service itself answers.
+#       A plain TCP connect to $RDP_IP:$RDP_PORT is not a readiness signal:
+#       rootless podman's 'rootlessport' forwarder starts listening as soon as
+#       the *container* starts, so the connect succeeds seconds before Windows
+#       has even reached the boot loader. Launching a RemoteApp that early makes
+#       the app start inside the VM while its window is never sent to the client
+#       (Office running, nothing but a stray console window on screen).
+#       This sends an X.224 Connection Request (TPKT + RDP negotiation request)
+#       and requires a TPKT reply, which only the Windows RDP stack can produce.
+function waRdpReady() {
+    if ! command -v python3 &>/dev/null; then
+        # Fallback: plain TCP probe (cannot tell the port forwarder apart).
+        timeout 1 bash -c ">/dev/tcp/$RDP_IP/$RDP_PORT" 2>/dev/null
+        return $?
+    fi
+
+    python3 -c '
+import socket, sys
+host, port = sys.argv[1], int(sys.argv[2])
+# TPKT header + X.224 Connection Request + RDP_NEG_REQ (requestedProtocols = 3)
+req = bytes.fromhex("03000013" "0ee00000000000" "0100080003000000")
+try:
+    sock = socket.create_connection((host, port), timeout=3)
+    sock.settimeout(3)
+    sock.sendall(req)
+    data = sock.recv(4)
+    sock.close()
+except OSError:
+    sys.exit(1)
+sys.exit(0 if len(data) >= 4 and data[0] == 3 else 1)
+' "$RDP_IP" "$RDP_PORT" &>/dev/null
+}
+
 # Name: 'waCheckContainerRunning'
 # Role: Throw an error if the Docker container is not running.
 function waCheckContainerRunning() {
@@ -593,7 +627,7 @@ function waCheckContainerRunning() {
     local TIME_ELAPSED=0
     local TIME_LIMIT=60
     local TIME_INTERVAL=5
-    local MAX_WAIT_TIME=120  # Maximum time to wait for container to be ready
+    local MAX_WAIT_TIME=300  # Maximum time to wait for Windows RDP to answer
 
     # If the container does not exist at all, (re)create it
     if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
@@ -671,13 +705,13 @@ function waCheckContainerRunning() {
             # Check if container is running
             if [[ $("$WAFLAVOR" inspect --format='{{.State.Status}}' "$CONTAINER_NAME") == "running" ]]; then
                 # Try to connect to RDP port to verify it's ready
-                if timeout 1 bash -c ">/dev/tcp/$RDP_IP/$RDP_PORT" 2>/dev/null; then
+                if waRdpReady; then
                     dprint "CONTAINER IS READY"
                     echo -e "Windows is ready."
                     # Add a delay after Windows is ready
                     if [ "$NEEDED_BOOT" = "true" ]; then
                         echo -e "Waiting for Windows services to initialize..."
-                        sleep 10
+                        sleep 20
                     fi
                     break
                 fi
