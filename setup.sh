@@ -1008,7 +1008,7 @@ function create_container() {
 
             # Check for boot progress
             local current_boots=0
-            current_boots=$(grep -c "BdsDxe: starting Boot0004" "$LOGFILE" 2>/dev/null) || current_boots=0
+            current_boots=$(grep -c "BdsDxe: starting Boot000[0-9] \"Windows Boot Manager\"" "$LOGFILE" 2>/dev/null) || current_boots=0
             if [ "$current_boots" -gt "$bootcount" ]; then
                 bootcount=$current_boots
                 print_success "Reboot $bootcount of $required_boots completed"
