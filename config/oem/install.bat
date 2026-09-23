@@ -55,7 +55,8 @@ REM Create time sync task to be run by the user at login
 echo %DATE% %TIME% Scheduling time sync task >> C:\OEM\setup.log
 copy %~dp0\TimeSync.ps1 %windir% >> C:\OEM\setup.log 2>&1
 set "taskname2=TimeSync"
-set "command2=powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File \"%windir%\TimeSync.ps1\""
+REM conhost --headless: plain powershell -WindowStyle Hidden still flashes a console window, which RemoteApp forwards to the Linux desktop
+set "command2=conhost.exe --headless powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File \"%windir%\TimeSync.ps1\""
 
 schtasks /query /tn "%taskname2%" >nul
 if %ERRORLEVEL% equ 0 (
