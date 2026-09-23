@@ -88,7 +88,7 @@ layout=$(detect_keyboard_layout)
 declare -A LAYOUT_TO_WIN_LANG_KB=(
     [af]="ps-AF" [am]="am-ET" [ar]="ar-SA" [as]="as-IN" [az]="az-Latn-AZ"
     [ba]="ba-RU" [be]="be-BY" [bg]="bg-BG" [bn]="bn-IN" [bo]="bo-CN"
-    [br]="br-FR" [bs]="bs-Latn-BA" [ca]="ca-ES" [cs]="cs-CZ" [cy]="cy-GB"
+    [br]="br-FR" [bs]="bs-Latn-BA" [ca]="fr-CA" [cs]="cs-CZ" [cy]="cy-GB"
     [da]="da-DK" [de]="de-DE" [dv]="dv-MV" [el]="el-GR" [en]="en-US"
     [gb]="en-GB" [es]="es-ES" [et]="et-EE" [eu]="eu-ES" [fa]="fa-IR"
     [fi]="fi-FI" [fo]="fo-FO" [fr]="fr-FR" [ga]="ga-IE" [gd]="gd-GB"
@@ -110,7 +110,7 @@ declare -A LAYOUT_TO_WIN_LANG_KB=(
 declare -A LAYOUT_TO_WIN_KB_CODE=(
     [af]="0481" [am]="0455" [ar]="0401" [as]="044D" [az]="042C"
     [ba]="0468" [be]="0423" [bg]="0402" [bn]="0445" [bo]="0451"
-    [br]="047e" [bs]="141A" [ca]="0403" [cs]="0405" [cy]="0452"
+    [br]="047e" [bs]="141A" [ca]="1009" [cs]="0405" [cy]="0452"
     [da]="0406" [de]="0407" [dv]="0465" [el]="0408" [en]="0409"
     [gb]="0809" [es]="0C0A" [et]="0425" [eu]="042D" [fa]="0429"
     [fi]="040B" [fo]="0438" [fr]="040C" [ga]="083C" [gd]="0491"
