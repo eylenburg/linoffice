@@ -886,10 +886,10 @@ function create_container() {
     # Sometimes the reboot between install.bat and InstallOffice.ps1 is not a full UEFI reboot, so only 4 are seen.
     # We proceed if we see at least 4 reboots, and print a note if more are detected.
         # this is how many times the Windows VM needs to boot to be ready
-        # the string to look for is "BdsDxe: starting Boot0004"
-        # 3 reboots will be logged during initial Windows until you can see the desktop for the first time
-        # 1 reboot at the end of install.bat (this is the one that is not always logged for some reason)
-        # 1 reboot at the end of the InstallOffice.ps1
+        # count BdsDxe lines that start Windows Boot Manager (Boot000N varies by OVMF)
+        # 3 reboots during initial Windows until the desktop appears
+        # 1 reboot at the end of install.bat (not always a full UEFI reboot)
+        # 1 reboot at the end of InstallOffice.ps1
     local result=1  # 0 = success, 1 = failure (assume failure by default)
     local download_started=false
     local download_finished=false
@@ -1008,7 +1008,7 @@ function create_container() {
 
             # Check for boot progress
             local current_boots=0
-            current_boots=$(grep -c "BdsDxe: starting Boot000[0-9] \"Windows Boot Manager\"" "$LOGFILE" 2>/dev/null) || current_boots=0
+            current_boots=$(grep -cE 'BdsDxe: starting Boot[0-9]+ "Windows Boot Manager"' "$LOGFILE" 2>/dev/null) || current_boots=0
             if [ "$current_boots" -gt "$bootcount" ]; then
                 bootcount=$current_boots
                 print_success "Reboot $bootcount of $required_boots completed"
