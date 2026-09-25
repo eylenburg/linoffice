@@ -22,3 +22,7 @@ Windows Registry Editor Version 5.00
 ; NumLock on by default
 [HKEY_USERS\DefaultUser\Control Panel\Keyboard]
 "InitialKeyboardIndicators"="2"
+
+; Disable OneDrive notifications
+[HKEY_USERS\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\Microsoft.SkyDrive.Desktop]
+"Enabled"=dword:00000000
