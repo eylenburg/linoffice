@@ -59,7 +59,11 @@ XWAYLAND=""
 FREERDP_PID=-1
 NEEDED_BOOT=false
 IS_OFFICE_WXP_APP=false  
-SCRIPT_START_TIME=0      
+SCRIPT_START_TIME=0
+SPLASH_PID=""
+SPLASH_STATUS_FILE=""
+SPLASH_TITLE="Starting LinOffice"
+SPLASH_ICON=""
 
 # Virtual environment support
 USE_VENV=0
@@ -372,12 +376,127 @@ waWaitForAllProcesses() {
 # Role: Cleanup this script instance
 waCleanupInstance() {
     dprint "CLEANUP INSTANCE: $INSTANCE_ID"
+
+    waSplashClose
     
     # Unregister this instance
     waUnregisterInstance
     
     # Check if master cleanup should run
     waCheckMasterCleanup "false"
+}
+
+# Name: 'waPrepareSplashInfo'
+# Role: Resolve splash title/icon from the requested app (if any).
+waPrepareSplashInfo() {
+    SPLASH_TITLE="Starting LinOffice"
+    SPLASH_ICON=""
+
+    case "$1" in
+        word|excel|powerpoint|onenote|outlook)
+            local info_file=""
+            if [ -e "${SCRIPT_DIR_PATH}/apps/${1}/info.txt" ]; then
+                info_file="${SCRIPT_DIR_PATH}/apps/${1}/info.txt"
+                SPLASH_ICON="${SCRIPT_DIR_PATH}/apps/${1}/icon.svg"
+            elif [ -e "${APPDATA_PATH}/apps/${1}/info.txt" ]; then
+                info_file="${APPDATA_PATH}/apps/${1}/info.txt"
+                SPLASH_ICON="${APPDATA_PATH}/apps/${1}/icon.svg"
+            fi
+            if [ -n "$info_file" ]; then
+                local app_full_name
+                app_full_name=$(grep -m1 '^FULL_NAME=' "$info_file" | cut -d= -f2- | tr -d '"')
+                if [ -n "$app_full_name" ]; then
+                    SPLASH_TITLE="Starting ${app_full_name}"
+                fi
+            fi
+            ;;
+        windows)
+            SPLASH_TITLE="Starting Windows"
+            ;;
+        manual)
+            SPLASH_TITLE="Starting Windows app"
+            ;;
+        --startcontainer)
+            SPLASH_TITLE="Starting Windows"
+            ;;
+    esac
+}
+
+# Name: 'waSplashShow'
+# Role: Show a non-modal splash while Windows boots (no-op if GUI unavailable).
+waSplashShow() {
+    local message="${1:-Starting Windows...}"
+
+    # Already showing — just refresh the status text.
+    if [ -n "$SPLASH_PID" ]; then
+        waSplashStatus "$message"
+        return 0
+    fi
+
+    # No display available.
+    [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && return 0
+
+    local python_cmd=""
+    if [ -n "$VENV_PATH" ] && [ -x "$VENV_PATH/bin/python3" ]; then
+        python_cmd="$VENV_PATH/bin/python3"
+    elif command -v python3 &>/dev/null; then
+        python_cmd="python3"
+    else
+        return 1
+    fi
+
+    if ! "$python_cmd" -c "from PySide6.QtWidgets import QApplication" 2>/dev/null; then
+        dprint "SPLASH SKIPPED: PySide6 not available"
+        return 1
+    fi
+
+    local splash_script="${SCRIPT_DIR_PATH}/gui/splash.py"
+    if [ ! -f "$splash_script" ]; then
+        return 1
+    fi
+
+    SPLASH_STATUS_FILE=$(mktemp "${TMPDIR:-/tmp}/linoffice-splash.XXXXXX") || return 1
+    echo "$message" > "$SPLASH_STATUS_FILE"
+
+    local -a splash_args=(--status-file "$SPLASH_STATUS_FILE" --title "$SPLASH_TITLE")
+    if [ -n "$SPLASH_ICON" ] && [ -f "$SPLASH_ICON" ]; then
+        splash_args+=(--icon "$SPLASH_ICON")
+    fi
+
+    "$python_cmd" "$splash_script" "${splash_args[@]}" &>/dev/null &
+    SPLASH_PID=$!
+    dprint "SPLASH STARTED PID=$SPLASH_PID"
+}
+
+# Name: 'waSplashStatus'
+# Role: Update splash status text.
+waSplashStatus() {
+    [ -n "$SPLASH_STATUS_FILE" ] && [ -f "$SPLASH_STATUS_FILE" ] && echo "$1" > "$SPLASH_STATUS_FILE"
+}
+
+# Name: 'waSplashClose'
+# Role: Close the splash window if it is open.
+waSplashClose() {
+    if [ -n "$SPLASH_STATUS_FILE" ] && [ -f "$SPLASH_STATUS_FILE" ]; then
+        echo "CLOSE" > "$SPLASH_STATUS_FILE"
+    fi
+    if [ -n "$SPLASH_PID" ] && kill -0 "$SPLASH_PID" 2>/dev/null; then
+        # Give it a moment to quit cleanly, then force if needed.
+        local waited=0
+        while kill -0 "$SPLASH_PID" 2>/dev/null && [ $waited -lt 10 ]; do
+            sleep 0.1
+            waited=$((waited + 1))
+        done
+        if kill -0 "$SPLASH_PID" 2>/dev/null; then
+            kill "$SPLASH_PID" 2>/dev/null
+        fi
+        wait "$SPLASH_PID" 2>/dev/null || true
+    fi
+    SPLASH_PID=""
+    if [ -n "$SPLASH_STATUS_FILE" ]; then
+        rm -f "$SPLASH_STATUS_FILE"
+        SPLASH_STATUS_FILE=""
+    fi
 }
 
 # Name: 'waLastRun'
@@ -633,6 +752,7 @@ function waCheckContainerRunning() {
     if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
         dprint "WINDOWS CONTAINER MISSING. RECREATING."
         echo -e "Creating Windows container."
+        waSplashShow "Creating Windows container..."
         $COMPOSE_COMMAND --file "$COMPOSE_PATH" up -d &>/dev/null
         NEEDED_BOOT=true
         # Give podman a moment to register the container before inspecting
@@ -650,12 +770,14 @@ function waCheckContainerRunning() {
         "created")
             dprint "WINDOWS CREATED. BOOTING WINDOWS."
             echo -e "Booting Windows."
+            waSplashShow "Booting Windows..."
             $COMPOSE_COMMAND --file "$COMPOSE_PATH" start &>/dev/null
             NEEDED_BOOT=true
             ;;
         "restarting")
             dprint "WINDOWS RESTARTING. WAITING."
             echo -e "Windows is currently restarting. Please wait."
+            waSplashShow "Windows is restarting..."
             EXIT_STATUS=$EC_RESTART_TIMEOUT
             while (( TIME_ELAPSED < TIME_LIMIT )); do
                 if [[ $("$WAFLAVOR" inspect --format='{{.State.Status}}' "$CONTAINER_NAME") == "running" ]]; then
@@ -677,12 +799,14 @@ function waCheckContainerRunning() {
         "exited")
             dprint "WINDOWS SHUT OFF. BOOTING WINDOWS."
             echo -e "Booting Windows."
+            waSplashShow "Booting Windows..."
             $COMPOSE_COMMAND --file "$COMPOSE_PATH" start &>/dev/null
             NEEDED_BOOT=true
             ;;
         "dead")
             dprint "WINDOWS DEAD. RECREATING WINDOWS CONTAINER."
             echo -e "Re-creating and booting Windows."
+            waSplashShow "Re-creating Windows container..."
             $COMPOSE_COMMAND --file "$COMPOSE_PATH" down &>/dev/null && $COMPOSE_COMMAND --file "$COMPOSE_PATH" up -d &>/dev/null
             NEEDED_BOOT=true
             ;;
@@ -694,10 +818,11 @@ function waCheckContainerRunning() {
     # Handle non-zero exit statuses.
     [ "$EXIT_STATUS" -ne 0 ] && waThrowExit "$EXIT_STATUS"
 
-    # Wait for container to be fully ready
-    if [[ "$CONTAINER_STATE" == "created" || "$CONTAINER_STATE" == "exited" || "$CONTAINER_STATE" == "dead" || "$CONTAINER_STATE" == "restarting" ]]; then
+    # Wait for container to be fully ready after a boot (or when state requires it).
+    if [[ "$NEEDED_BOOT" == "true" || "$CONTAINER_STATE" == "created" || "$CONTAINER_STATE" == "exited" || "$CONTAINER_STATE" == "dead" || "$CONTAINER_STATE" == "restarting" ]]; then
         dprint "WAITING FOR CONTAINER TO BE FULLY READY..."
         echo -e "Waiting for Windows to be ready..."
+        waSplashShow "Waiting for Windows to be ready..."
 
         TIME_ELAPSED=0
         
@@ -711,8 +836,10 @@ function waCheckContainerRunning() {
                     # Add a delay after Windows is ready
                     if [ "$NEEDED_BOOT" = "true" ]; then
                         echo -e "Waiting for Windows services to initialize..."
+                        waSplashStatus "Waiting for Windows services to initialize..."
                         sleep 20
                     fi
+                    waSplashClose
                     break
                 fi
             fi
@@ -723,6 +850,7 @@ function waCheckContainerRunning() {
             # Show progress every 30 seconds
             if (( TIME_ELAPSED % 30 == 0 )); then
                 echo -e "Still waiting for Windows to be ready... ($TIME_ELAPSED seconds elapsed)"
+                waSplashStatus "Still waiting for Windows... (${TIME_ELAPSED}s)"
             fi
         done
         
@@ -730,6 +858,9 @@ function waCheckContainerRunning() {
         if (( TIME_ELAPSED >= MAX_WAIT_TIME )); then
             dprint "TIMEOUT WAITING FOR CONTAINER TO BE READY"
             echo -e "Timeout waiting for Windows to be ready. Please try again."
+            waSplashStatus "ERROR:Timed out waiting for Windows to be ready."
+            sleep 2
+            waSplashClose
             waThrowExit $EC_FAIL_START
         fi
     fi
@@ -1197,6 +1328,7 @@ else
     exit 1
 fi
 
+waPrepareSplashInfo "$@"
 waCheckContainerRunning
 
 # Check if --startcontainer flag is present
@@ -1207,6 +1339,9 @@ for arg in "$@"; do
         break
     fi
 done
+
+# Ensure splash is gone before FreeRDP (or idle wait) takes over
+waSplashClose
 
 # Skip waTimeSync and waRunCommand if --startcontainer is used
 if [[ "$START_CONTAINER" != "true" ]]; then
