@@ -84,49 +84,64 @@ function detect_keyboard_layout() {
 # Run the function
 layout=$(detect_keyboard_layout)
 
-# Declare associative arrays for layout → Windows locale and keyboard code
+# Map the XKB layout name (as listed in xkeyboard-config's rules/base.lst) to
+# the Windows input locale. The first array is used for KEYBOARD in compose.yaml,
+# which dockur writes to the unattended install's InputLocale, so it accepts
+# either a "LCID:KLID" pair or, for IME-based languages, a language tag that
+# selects Windows' default IME. The second array is the keyboard layout ID
+# (KLID) passed to FreeRDP with /kbd:layout.
+# Values follow Microsoft's "Default input profiles (input locales) in Windows"
+# for the matching language/region, except nl, fo and vn, where Windows ships a
+# layout closer to the XKB one than its default (Dutch, Faeroese, Vietnamese).
+# Layouts with no Windows counterpart are left out, so the defaults are kept.
 declare -A LAYOUT_TO_WIN_LANG_KB=(
-    [af]="ps-AF" [am]="am-ET" [ar]="ar-SA" [as]="as-IN" [az]="az-Latn-AZ"
-    [ba]="ba-RU" [be]="be-BY" [bg]="bg-BG" [bn]="bn-IN" [bo]="bo-CN"
-    [br]="br-FR" [bs]="bs-Latn-BA" [ca]="fr-CA" [cs]="cs-CZ" [cy]="cy-GB"
-    [da]="da-DK" [de]="de-DE" [dv]="dv-MV" [el]="el-GR" [en]="en-US"
-    [gb]="en-GB" [es]="es-ES" [et]="et-EE" [eu]="eu-ES" [fa]="fa-IR"
-    [fi]="fi-FI" [fo]="fo-FO" [fr]="fr-FR" [ga]="ga-IE" [gd]="gd-GB"
-    [gl]="gl-ES" [gu]="gu-IN" [he]="he-IL" [hi]="hi-IN" [hr]="hr-HR"
-    [hu]="hu-HU" [hy]="hy-AM" [id]="id-ID" [is]="is-IS" [it]="it-IT"
-    [iu]="iu-Latn-CA" [ja]="ja-JP" [ka]="ka-GE" [kk]="kk-KZ" [km]="km-KH"
-    [kn]="kn-IN" [ko]="ko-KR" [kok]="kok-IN" [ky]="ky-KG" [lb]="lb-LU"
-    [lo]="lo-LA" [lt]="lt-LT" [lv]="lv-LV" [mi]="mi-NZ" [mk]="mk-MK"
-    [ml]="ml-IN" [mn]="mn-MN" [mr]="mr-IN" [ms]="ms-MY" [mt]="mt-MT"
-    [nb]="nb-NO" [ne]="ne-NP" [nl]="nl-NL" [nn]="nn-NO" [or]="or-IN"
-    [pa]="pa-IN" [pl]="pl-PL" [pt]="pt-PT" [ro]="ro-RO" [ru]="ru-RU"
-    [si]="si-LK" [sk]="sk-SK" [sl]="sl-SI" [sq]="sq-AL" [sr]="sr-Cyrl-RS"
-    [sv]="sv-SE" [sw]="sw-KE" [ta]="ta-IN" [te]="te-IN" [th]="th-TH"
-    [tk]="tk-TM" [tr]="tr-TR" [tt]="tt-RU" [ug]="ug-CN" [uk]="uk-UA"
-    [ur]="ur-PK" [uz]="uz-Latn-UZ" [vi]="vi-VN" [wo]="wo-SN" [yo]="yo-NG"
-    [zh]="zh-CN"
+    [al]="041C:0000041C" [et]="am-ET" [am]="042B:0002042B" [ara]="0401:00000401"
+    [eg]="0C01:00000401" [iq]="0801:00000401" [ma]="1801:00020401" [sy]="2801:00000401"
+    [az]="042C:0000042C" [bd]="0845:00000445" [by]="0423:00000423" [be]="080C:0000080C"
+    [dz]="085F:0000085F" [ba]="141A:0000041A" [bg]="0402:00030402" [mm]="0455:00130C00"
+    [cn]="zh-CN" [hr]="041A:0000041A" [cz]="0405:00000405" [dk]="0406:00000406"
+    [af]="048C:00050429" [mv]="0465:00000465" [nl]="0413:00000413" [bt]="0C51:00000C51"
+    [au]="0C09:00000409" [nz]="1409:00001409" [za]="1C09:00000409" [gb]="0809:00000809"
+    [ee]="0425:00000425" [fo]="0438:00000438" [ph]="0464:00000409" [fi]="040B:0000040B"
+    [fr]="040C:0000040C" [ca]="0C0C:00001009" [cd]="240C:0000040C" [ge]="0437:00010437"
+    [de]="0407:00000407" [at]="0C07:00000407" [ch]="0807:00000807" [gr]="0408:00000408"
+    [il]="040D:0002040D" [hu]="040E:0000040E" [is]="040F:0000040F" [in]="0439:00010439"
+    [id]="0421:00000409" [ie]="1809:00001809" [it]="0410:00000410" [jp]="ja-JP"
+    [kz]="043F:0000043F" [kh]="0453:00000453" [kr]="ko-KR" [kg]="0440:00000440"
+    [la]="0454:00000454" [lv]="0426:00020426" [lt]="0427:00010427" [mk]="042F:0001042F"
+    [mt]="043A:0000043A" [md]="0818:00010418" [mn]="0450:00000450" [me]="2C1A:0000081A"
+    [np]="0461:00000461" [no]="0414:00000414" [ir]="0429:00000429" [pl]="0415:00000415"
+    [pt]="0816:00000816" [br]="0416:00000416" [ro]="0418:00010418" [ru]="0419:00000419"
+    [rs]="281A:00000C1A" [lk]="045B:0000045B" [sk]="041B:0000041B" [si]="0424:00000424"
+    [es]="0C0A:0000040A" [latam]="580A:0000080A" [ke]="0441:00000409" [se]="041D:0000041D"
+    [tw]="zh-TW" [tj]="0428:00000428" [th]="041E:0000041E" [bw]="0832:00000432"
+    [tm]="0442:00000442" [tr]="041F:0000041F" [ua]="0422:00020422" [pk]="0420:00000420"
+    [uz]="0843:00000843" [vn]="042A:0000042A" [sn]="0488:00000488"
 )
 
 declare -A LAYOUT_TO_WIN_KB_CODE=(
-    [af]="0481" [am]="0455" [ar]="0401" [as]="044D" [az]="042C"
-    [ba]="0468" [be]="0423" [bg]="0402" [bn]="0445" [bo]="0451"
-    [br]="047e" [bs]="141A" [ca]="1009" [cs]="0405" [cy]="0452"
-    [da]="0406" [de]="0407" [dv]="0465" [el]="0408" [en]="0409"
-    [gb]="0809" [es]="0C0A" [et]="0425" [eu]="042D" [fa]="0429"
-    [fi]="040B" [fo]="0438" [fr]="040C" [ga]="083C" [gd]="0491"
-    [gl]="0456" [gu]="0447" [he]="040D" [hi]="0439" [hr]="041A"
-    [hu]="040E" [hy]="042B" [id]="0421" [is]="040F" [it]="0410"
-    [iu]="085D" [ja]="0411" [ka]="0437" [kk]="043F" [km]="0453"
-    [kn]="044B" [ko]="0412" [kok]="0457" [ky]="0440" [lb]="046E"
-    [lo]="0454" [lt]="0427" [lv]="0426" [mi]="0481" [mk]="042F"
-    [ml]="044C" [mn]="0450" [mr]="044E" [ms]="043E" [mt]="043A"
-    [nb]="0414" [ne]="0461" [nl]="0413" [nn]="0814" [or]="0448"
-    [pa]="0446" [pl]="0415" [pt]="0816" [ro]="0418" [ru]="0419"
-    [si]="045B" [sk]="041B" [sl]="0424" [sq]="041C" [sr]="0C1A"
-    [sv]="041D" [sw]="0441" [ta]="0449" [te]="044A" [th]="041E"
-    [tk]="0442" [tr]="041F" [tt]="0444" [ug]="0480" [uk]="0422"
-    [ur]="0420" [uz]="0443" [vi]="042A" [wo]="0488" [yo]="046A"
-    [zh]="0804"
+    [al]="0000041C" [am]="0002042B" [ara]="00000401" [eg]="00000401"
+    [iq]="00000401" [ma]="00020401" [sy]="00000401" [az]="0000042C"
+    [bd]="00000445" [by]="00000423" [be]="0000080C" [dz]="0000085F"
+    [ba]="0000041A" [bg]="00030402" [mm]="00130C00" [cn]="00000804"
+    [hr]="0000041A" [cz]="00000405" [dk]="00000406" [af]="00050429"
+    [mv]="00000465" [nl]="00000413" [bt]="00000C51" [au]="00000409"
+    [nz]="00001409" [za]="00000409" [gb]="00000809" [ee]="00000425"
+    [fo]="00000438" [ph]="00000409" [fi]="0000040B" [fr]="0000040C"
+    [ca]="00001009" [cd]="0000040C" [ge]="00010437" [de]="00000407"
+    [at]="00000407" [ch]="00000807" [gr]="00000408" [il]="0002040D"
+    [hu]="0000040E" [is]="0000040F" [in]="00010439" [id]="00000409"
+    [ie]="00001809" [it]="00000410" [jp]="00000411" [kz]="0000043F"
+    [kh]="00000453" [kr]="00000412" [kg]="00000440" [la]="00000454"
+    [lv]="00020426" [lt]="00010427" [mk]="0001042F" [mt]="0000043A"
+    [md]="00010418" [mn]="00000450" [me]="0000081A" [np]="00000461"
+    [no]="00000414" [ir]="00000429" [pl]="00000415" [pt]="00000816"
+    [br]="00000416" [ro]="00010418" [ru]="00000419" [rs]="00000C1A"
+    [lk]="0000045B" [sk]="0000041B" [si]="00000424" [es]="0000040A"
+    [latam]="0000080A" [ke]="00000409" [se]="0000041D" [tw]="00000404"
+    [tj]="00000428" [th]="0000041E" [bw]="00000432" [tm]="00000442"
+    [tr]="0000041F" [ua]="00020422" [pk]="00000420" [uz]="00000843"
+    [vn]="0000042A" [sn]="00000488"
 )
 
 
