@@ -8,13 +8,21 @@ export LC_CTYPE=C.UTF-8
 # Ensure iconv/grep/sed do not break on accents
 export LANG="${LANG:-C.UTF-8}"
 
-# Output files
+# Output files. Write into LINOFFICE_CONFIG_DIR, never into the read-only prefix.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REG_FILE="$SCRIPT_DIR/oem/registry/regional_settings.reg"
-TEMP_FILE="$SCRIPT_DIR/oem/registry/regional_settings_temp.reg"
+if [[ -z "${LINOFFICE_CONFIG_DIR:-}" ]]; then
+  # shellcheck source=../lib/paths.sh
+  source "$SCRIPT_DIR/../lib/paths.sh"
+fi
+if [[ -n "${1:-}" ]]; then
+  REG_FILE="$1"
+else
+  REG_FILE="${LINOFFICE_CONFIG_DIR}/oem/registry/regional_settings.reg"
+fi
+TEMP_FILE="$(dirname "$REG_FILE")/regional_settings_temp.reg"
 
 # Create the oem/registry directory if it doesn't exist
-mkdir -p "$SCRIPT_DIR/oem/registry"
+mkdir -p "$(dirname "$REG_FILE")"
 
 # Function to get locale value using locale command
 get_locale_value() {

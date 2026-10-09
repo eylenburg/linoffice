@@ -12,7 +12,7 @@ import urllib.parse
 # Configuration
 REPO_OWNER = "eylenburg"
 REPO_NAME = "linoffice"
-CURRENT_VERSION = "2.3.1"
+CURRENT_VERSION = "2.99.0"
 GITHUB_API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases"
 PRESERVE_FILES = {"config/compose.yaml", "config/linoffice.conf", "config/oem/registry/regional_settings.reg"}
 GITHUB_TOKEN = None  # Can replace with GitHub Personal Access Token if hitting API limits
@@ -113,7 +113,11 @@ def download_and_update(asset_url, current_dir):
             target_path = Path(current_dir) / relative_path
 
             if relative_path in PRESERVE_FILES:
-                print(f"Preserving {relative_path}")
+                # Keep an existing generated file. Do not write a new one into PREFIX.
+                if target_path.exists():
+                    print(f"Preserving {relative_path}")
+                else:
+                    print(f"Skipping generated file {relative_path} (not writing it into the install prefix)")
                 continue
 
             target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -169,6 +173,14 @@ def main():
 
     current_dir = Path(sys.argv[0]).parent
     if download_and_update(asset_url, current_dir):
+        lib_dir = Path(sys.argv[0]).resolve().parent / "lib"
+        if str(lib_dir) not in sys.path:
+            sys.path.insert(0, str(lib_dir))
+        try:
+            from paths import CONFIG_DIR
+            print("User config is in %s" % CONFIG_DIR)
+        except Exception as exc:
+            print("Update applied. Could not resolve the user config directory: %s" % exc)
         print("Please restart the application to use the new version.")
     else:
         print("Update failed.")

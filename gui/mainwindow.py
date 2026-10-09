@@ -10,25 +10,43 @@ import csv
 import threading
 import re
 
-LINOFFICE_SCRIPT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'linoffice.sh'))
-SETUP_SCRIPT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'setup.sh'))
-UNINSTALL_SCRIPT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'uninstall.sh'))
+_LIB_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'lib'))
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+import paths as linoffice_paths
 
-# Define the user's local registry override config path
-USER_REGISTRY_CONFIG = os.path.expanduser('~/.local/share/linoffice/registry_override.conf')
+LINOFFICE_SCRIPT = str(linoffice_paths.LINOFFICE_SCRIPT)
+SETUP_SCRIPT = str(linoffice_paths.SETUP_SCRIPT)
+UNINSTALL_SCRIPT = str(linoffice_paths.UNINSTALL_SCRIPT)
 
-# Define the languages CSV file path
-LANGUAGES_CSV = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'languages.csv'))
+# Writable registry override. An existing legacy copy is preferred over a blank file.
+USER_REGISTRY_CONFIG = str(linoffice_paths.DATA_DIR / 'registry_override.conf')
 
-# Define the internet state file path
-INTERNET_STATE_FILE = os.path.expanduser('~/.local/share/linoffice/internet')
+LANGUAGES_CSV = str(linoffice_paths.LANGUAGES_CSV)
+
+INTERNET_STATE_FILE = str(linoffice_paths.DATA_DIR / 'internet')
+
+LINOFFICE_CONF_FILE = str(linoffice_paths.CONF_FILE)
+
+def _copy_legacy_data_file(name):
+    """If the data-dir file is missing, copy it from ~/.local/share/linoffice."""
+    primary = os.path.join(str(linoffice_paths.DATA_DIR), name)
+    legacy = os.path.join(str(linoffice_paths.LEGACY_DATA_DIR), name)
+    if os.path.exists(primary) or not os.path.isfile(legacy):
+        return
+    if os.path.realpath(primary) == os.path.realpath(legacy):
+        return
+    os.makedirs(os.path.dirname(primary), exist_ok=True)
+    import shutil
+    shutil.copy2(legacy, primary)
 
 def ensure_internet_state_file():
         """Ensure the internet state file exists with default 'on' value"""
         state_dir = os.path.dirname(INTERNET_STATE_FILE)
         if not os.path.exists(state_dir):
             os.makedirs(state_dir, exist_ok=True)
-        
+
+        _copy_legacy_data_file('internet')
         if not os.path.exists(INTERNET_STATE_FILE):
             # Create the file with default 'on' state
             with open(INTERNET_STATE_FILE, 'w') as f:
@@ -55,11 +73,12 @@ def save_internet_state(state_on):
         print(f"Error saving internet state: {e}")
 
 def ensure_registry_config_exists():
-    """Ensure the registry_override.conf file exists in user's local directory"""
+    """Ensure registry_override.conf exists. Prefer an existing legacy copy over a blank file."""
     config_dir = os.path.dirname(USER_REGISTRY_CONFIG)
     if not os.path.exists(config_dir):
         os.makedirs(config_dir, exist_ok=True)
-    
+
+    _copy_legacy_data_file('registry_override.conf')
     if not os.path.exists(USER_REGISTRY_CONFIG):
         # Create the file with default empty values
         with open(USER_REGISTRY_CONFIG, 'w') as f:
@@ -214,7 +233,7 @@ class SettingsWindow(QMainWindow):
         try:
             import re
             # Load linoffice.conf settings
-            linoffice_conf_path = os.path.join(os.path.dirname(LINOFFICE_SCRIPT), 'config', 'linoffice.conf')
+            linoffice_conf_path = LINOFFICE_CONF_FILE
             if os.path.exists(linoffice_conf_path):
                 with open(linoffice_conf_path, 'r') as f:
                     content = f.read()
@@ -308,7 +327,7 @@ class SettingsWindow(QMainWindow):
             # --- End network checkbox logic ---
             
             # Save linoffice.conf settings
-            linoffice_conf_path = os.path.join(os.path.dirname(LINOFFICE_SCRIPT), 'config', 'linoffice.conf')
+            linoffice_conf_path = LINOFFICE_CONF_FILE
             if os.path.exists(linoffice_conf_path):
                 with open(linoffice_conf_path, 'r') as f:
                     content = f.read()
@@ -372,6 +391,7 @@ class SettingsWindow(QMainWindow):
             
             with open(registry_conf_path, 'w') as f:
                 f.write(content)
+            linoffice_paths.legacy_fallback_copy('registry_override.conf')
             
             # Run linoffice.sh registry_override if registry settings were changed
             if registry_settings_changed:
@@ -734,7 +754,7 @@ class TroubleshootingWindow(QMainWindow):
 
     def _conf_path(self):
         # Reuse same resolution as in SettingsWindow
-        return os.path.join(os.path.dirname(LINOFFICE_SCRIPT), 'config', 'linoffice.conf')
+        return LINOFFICE_CONF_FILE
 
     def _read_conf(self):
         path = self._conf_path()
@@ -841,7 +861,7 @@ class TroubleshootingWindow(QMainWindow):
         subprocess.Popen([LINOFFICE_SCRIPT, '--stopcontainer'])
 
     def open_logfile(self):
-        logfile = os.path.expanduser('~/.local/share/linoffice/linoffice.log')
+        logfile = str(linoffice_paths.read_data_path('linoffice.log'))
         # Try to open with xdg-open (Linux default)
         subprocess.Popen(['xdg-open', logfile])
 

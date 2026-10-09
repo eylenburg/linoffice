@@ -41,9 +41,9 @@ The project utilises [Winapps](https://github.com/winapps-org/winapps), [Dockur/
 - [ ] Deliver as Flatpak or AppImage, which would have these benefits:
     - Bundles dependencies such as FreeRDP and Podman-Compose; only Podman would need to be installed on the system already
     - Installation and uninstallation more straight-forward for Linux beginners 
-    - Code changes needed:
-      - APPDATA folder should not be hardcoded (in `setup.sh`, `linoffice.sh`, `mainwindow.py`, `installer.py`, `linoffice.py`, `TimeSync.ps1`, `FirstRunRDP.ps1`, and `RegistryOverride.ps1`) or at least only hardcoded in one of them and then read by the others (like `uninstall.sh` is doing).
-      - Flatpak would not allow creatingfiles in the `config` folder inside the app's folder (`compose.yaml`, `linoffice.conf`, `oem/registry/regional-settings.reg`), so it might be better to to move this whole folder out of the app directory and change the file references (perhaps copy to the APPDATA folder)
+    - Code changes still needed:
+      - Writable paths are resolved by `lib/paths.sh` and `lib/paths.py`. Overrides are `LINOFFICE_PREFIX`, `LINOFFICE_CONFIG_DIR`, `LINOFFICE_DATA_DIR`, and `LINOFFICE_APPLICATIONS_DIR`. New installs use the XDG config and data directories. An existing `config/` next to `linoffice.sh` and an existing `~/.local/share/linoffice` stay in use.
+      - Remaining Flatpak work is the manifest, portals, and access to the host Podman socket.
 
 
 ### Nice to have but lower priority
@@ -137,7 +137,7 @@ FreeRDP can also be installed as a [Flatpak](https://flathub.org/apps/com.freerd
 0. Make sure that you have **installed all the dependencies** (see above).
 1. **Download this repo** (e.g. [release version](https://github.com/eylenburg/linoffice/releases) or [latest git version](https://github.com/eylenburg/linoffice/archive/refs/heads/main.zip))
 2. **Unzip and save** in a convenient folder (e.g. `~/.local/bin/linoffice`)
-3. Optional: Change some settings in `config/compose.yaml.default` or `config/linoffice.conf`
+3. Optional: Change settings in the templates `config/compose.yaml.default` and `config/linoffice.conf.default` before the first run. Generated `compose.yaml` and `linoffice.conf` are seeded into the config directory (`~/.config/linoffice` on a new install, or `config/` next to `linoffice.sh` when that folder already contains those files).
 
 <details><summary><strong>Don't want to use Windows 11?</strong></summary>
 
@@ -166,10 +166,12 @@ You can run the `uninstall.sh` to remove everything or click on the Uninstall bu
 <details><summary>Where are the files saved?</summary>
 
 If you want to manually remove the files:
-- The self-contained folder where you have saved the `linoffice.sh` script; this will be `~/.local/bin/linoffice` if you used the Quickstart script to install Linoffice.
-- The appdata folder for temporary files is in `~/.local/share/linoffice`
-- The `.desktop files` (Excel, Onenote, Outlook, Powerpoint, Word) will be created in `~/.local/share/applications`
-- The Podman containers, which include the Windows VM, can be removed with `podman rm -f LinOffice && podman volume rm linoffice_data`
+- **App files (PREFIX):** the folder that contains `linoffice.sh`. The Quickstart script still installs this to `~/.local/bin/linoffice`. `uninstall.sh` does not delete a system prefix such as `/usr`, `/app`, or `/nix/store`.
+- **Config (CONFIG_DIR):** `compose.yaml`, `linoffice.conf`, and the working `oem/` directory. A new install uses `${XDG_CONFIG_HOME:-~/.config}/linoffice`. If `config/compose.yaml` or `config/linoffice.conf` already exists next to `linoffice.sh`, that folder keeps being used.
+- **Data (DATA_DIR):** logs, setup progress, `installed_dependencies`, `registry_override.conf`, and the suspend marker. If `~/.local/share/linoffice` already exists, it stays the data directory. Otherwise the directory is `${XDG_DATA_HOME:-~/.local/share}/linoffice`.
+- **Desktop files:** `${XDG_DATA_HOME:-~/.local/share}/applications`, unless `LINOFFICE_APPLICATIONS_DIR` is set. Older installs may also have them in `~/.local/share/applications`.
+- **Windows VM:** Podman project name `linoffice`, container `LinOffice`, volume `linoffice_data` (`podman rm -f LinOffice && podman volume rm linoffice_data`).
+- Path overrides: `LINOFFICE_PREFIX`, `LINOFFICE_CONFIG_DIR`, `LINOFFICE_DATA_DIR`, `LINOFFICE_APPLICATIONS_DIR`. `lib/paths.sh` and `lib/paths.py` are the resolution code.
 
 </details>
 
@@ -200,12 +202,14 @@ If you are using the terminal commands often, you might want to create an alias 
 - `linoffice reset`: kills all FreeRDP processes, cleans up Office lock files, and reboots the Windows VM
 - `linoffice stopcontainer`: stops and then removes the podman container (but not its data) and cleans up all associated resources
 - `linoffice cleanup [--full|--reset]`: cleans up Office lock files (such as ~$file.xlsx) in the home folder and removable media; `--full` cleans all files regardless of creation date, `--reset` resets the last cleanup timestamp
+- `linoffice refresh-oem`: copies the current OEM scripts into an existing Windows VM (`C:\OEM`, and `TimeSync.ps1` into the Windows directory). It does not reinstall Windows and it does not run on every launch.
 
 The setup script (`setup.sh`) has these CLI options:
 - `./setup.sh --desktop`: Only (re)create the .desktop files (app launchers)
 - `./setup.sh --firstrun`: Force RDP and Office installation checks (can be used after the Windows VM has finished installation)
 - `./setup.sh --installoffice`: Only run the Office installation script script (in case the Windows installation has finished but Office is not installed)
 - `./setup.sh --healthcheck`: Check that the system requirements are met and dependencies are installed and the container is healthy (there is also a button for this in the GUI)
+- `./setup.sh --refresh-oem`: same as `linoffice refresh-oem`
 
 ### Office activation 
 
@@ -228,7 +232,7 @@ The Office application are running in a virtual machine with Windows, meaning th
 If you have problems with the setup script, such as Office not being found or FreeRDP not connecting, do the following:
 
 1. Access the VM through `127.0.0.1:8006` in the browser (password to log in is `MyWindowsPassword`) and check:
-  - [ ] Does the VM run and let you log in? If not, check `windows_install.log` (in `~/.local/share/linoffice`) to see what could have gone wrong.
+  - [ ] Does the VM run and let you log in? If not, check `windows_install.log` in the LinOffice data directory (for an existing install this is still `~/.local/share/linoffice`) to see what could have gone wrong.
   - [ ] Is Microsoft Office installed? If not, try to download and install Office manually, then create an empty file (not folder) called `success` in `C:\OEM\`, then sign out (!) of the Windows account using the Start Menu but don't shut down Windows
 2. After this, run `./setup.sh --firstrun` from Linux
 
@@ -243,15 +247,21 @@ If you still get an error, test if you can connect to the VM using RDP.
 6. After this, run `./setup.sh --firstrun` from Linux again and hopefully it succeeds now.
 
 If there is still a problem in the setup, even though you have just confirmed that Office is installed and you can launch Office applications from Linux using FreeRDP, do this:
-1. In `~/.local/share/linoffice/` edit the file called `setup_progress.log` and add the line `office_installed` at the end if it doesn't yet exist
+1. In the LinOffice data directory (for an existing install this is still `~/.local/share/linoffice/`) edit the file called `setup_progress.log` and add the line `office_installed` at the end if it doesn't yet exist
 2. Run `./setup.sh --desktop` to create .desktop files (app launchers in Linux)
    
 Now you should be able to find the "Linoffice" GUI as well as the starters for Word, Excel etc. in your Linux menu.
 
 If you still can't get the setup to work, please [create a bug report ("setup didn't work")](https://github.com/eylenburg/linoffice/issues) with these information:
-- The `windows_install.log` and `setup_output.log` (in `~/.local/share/linoffice`)
+- The `windows_install.log` and `setup_output.log` (in the LinOffice data directory; for an existing install this is still `~/.local/share/linoffice`)
 - The `setup.log`, `setup_office.log`, and `setup_rdp.log` (if they exist) in `C:\OEM` in the Windows VM (if you can only access the VM through the browser/VNC, there is no clipboard sharing with Linux, so a screenshot is fine)
 - Your system information (LinOffice version, Linux distribution, desktop environment, Wayland or X11, how did you install podman, podman-compose and freerdp?)
+
+### Refresh OEM scripts in an existing Windows VM
+
+`./linoffice.sh refresh-oem` (or `./setup.sh --refresh-oem`) copies the working OEM scripts into a Windows VM that is already installed. Files go to `C:\OEM`, and `TimeSync.ps1` also goes to the Windows directory. The command does not create or recreate the VM, and it is not run on every launch.
+
+The guest reads `\\tsclient\linoffice\oem-refresh` first. If that share is missing it uses `\\tsclient\home\.local\share\linoffice\oem-refresh`. A log is written to `oem-refresh.log` in the data directory.
 
 ### Logging in to Microsoft
 
@@ -261,7 +271,7 @@ Some users have reported the issue that when they try to log in to Microsoft (e.
 
 In my experience, window management can be wonky, particularly if you're using Wayland instead of X11 or if you're using multiple monitors.
 
-A potential solution for multimonitor issues could be to open the file `config/linoffice.conf` and in the last line (`RDP_FLAGS`) adding `/multimon`. This is supposed to add multimonitor support to FreeRDP, but a FreeRDP bug may result in a black screen, in which case you should revert this change. Another potential solution is to add `/monitors:1` or `/monitors:0` to the `RDP_FLAGS` line in `linoffice.conf`, where the monitor ID is based on your "desired" monitor that the apps will run in;  while it restricts the Office windows to this desktop you should avoid the windows being unresponsive or disappearing and resizing works properly within this monitor.
+A potential solution for multimonitor issues could be to open `linoffice.conf` in the config directory (see "Where are the files saved?") and in the last line (`RDP_FLAGS`) adding `/multimon`. This is supposed to add multimonitor support to FreeRDP, but a FreeRDP bug may result in a black screen, in which case you should revert this change. Another potential solution is to add `/monitors:1` or `/monitors:0` to the `RDP_FLAGS` line in `linoffice.conf`, where the monitor ID is based on your "desired" monitor that the apps will run in;  while it restricts the Office windows to this desktop you should avoid the windows being unresponsive or disappearing and resizing works properly within this monitor.
 
 <details><summary>Examples</summary>
     
@@ -333,7 +343,8 @@ These are the files that are part of LinOffice and their functions:
 
 <details><summary>File list</summary>
     
-- `quickstart.sh`: Script that installs all required dependencies (new ones are remembered in `~/.local/share/linoffice/installed_dependencies`, downloads the latest version of LinOffice from GitHub and then launches `src/gui/linoffice.py`, which will most likely end up running the graphical installer
+- `quickstart.sh`: Script that installs all required dependencies (new ones are remembered in the data directory, `~/.local/share/linoffice/installed_dependencies` on an existing install), downloads the latest version of LinOffice from GitHub and then launches `src/gui/linoffice.py`, which will most likely end up running the graphical installer
+- `src/lib/paths.sh` and `src/lib/paths.py`: Resolve the app directory, the writable config directory, and the data directory. See `src/lib/README.md`.
 - `src/setup.sh`: Install script for LinOffice. Checks requirements are met and dependencies are installed, calls `locale_lang.sh` and `locale_reg.sh` to set various location settings, downloads Windows and sets up a Windows VM, installs Office in the VM, tries to connect via RDP, executes `FirstRDPRun.ps1` script in Windows, and creates app launchers.
 - `src/linoffice.sh`: Main script that is used when running LinOffice. It manages the Podman container (e.g. start or unsuspend) and runs the correct FreeRDP command for the Office (and other) applications.
 - `src/uninstall.sh`: Uninstall script. Removes program launchers in `~/.local/share/applications`, removes all LinOffice files in `~/.local/bin/linoffice/` and `~/.local/share/linoffice/`, offers to removes dependencies that were installed by `quickstart.sh` (as noted down in `~/.local/share/linoffice/installed_dependencies`), offers to remove the LinOffice Podman container and its data.
@@ -353,7 +364,8 @@ These are the files that are part of LinOffice and their functions:
 - `src/config/oem/OfficeConfiguration.xml`: Config file for the automatic installation of Office, e.g. which version of Office to install. It is used by Office Deployment Tool.
 - `src/config/oem/InstallOffice.ps1`: Scheduled by `install.bat`. Downloads Office Deployment Tool from Microsoft and runs it to install Microsoft Office using the configuration in `OfficeConfiguration.xml`. Then creates an empty file called `C:\OEM\success` and reboots the machine. This is the fourth reboot (three occur during the Windows installation) which will signal to `setup.sh` that the virtual machine is all set up now.
 - `src/config/oem/NetProfileCleanup.ps1`: A scheduled task created by `install.bat`. It renames the current network profile to LinOffice and deletes all other ones.
-- `src/config/oem/TimeSync.ps1`: A scheduled task created by `install.bat`. It syncs the time if a file called `\\tsclient\home\.local\share\linoffice\sleep_marker` is detected, which is created by `linoffice.sh` after the Linux host machine is suspended (which would introduce a time drift between the host and the VM).
+- `src/config/oem/TimeSync.ps1`: A scheduled task created by `install.bat`. It syncs the time if `sleep_marker` is found at `\\tsclient\linoffice\sleep_marker` or, for an existing VM, `\\tsclient\home\.local\share\linoffice\sleep_marker`. `linoffice.sh` creates that file after the Linux host is suspended (which would introduce a time drift between the host and the VM). `linoffice_paths.txt` can name another path.
+- `src/config/oem/linoffice_paths.txt`: Optional UNC hints (`SleepMarker`, `Success`, `RegistryOverride`) copied into the working OEM directory. Guest scripts use these when the file is present at `C:\OEM\linoffice_paths.txt`.
 - `src/config/oem/FirstRDPRun.ps1`: Creates a `success` file in Linux if the `C:\OEM\success` file exists in Windows (confirming a successful Office installation) and runs `QuickAccess.ps1`. This script is called by `setup.sh`.
 - `src/config/oem/QuickAccess.ps1`: Cleans up the quick access in Windows File Explorer by unpinning all folders and pinning the Linux `/home` folder instead.
 - `src/config/oem/RegistryOverride.ps1`: Applies changes to certain localization settings when they are change in the LinOffice GUI. This works by reading `registry_override.conf` (created by `mainwindow.py`) and applying the settings to the Windows registry.

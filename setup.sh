@@ -5,28 +5,41 @@
 CONTAINER_NAME="LinOffice" # should match the name in the compose.yaml
 CONTAINER_EXISTS=0  # 0 = Does not exist (default), 1 = exists
 
-# Absolute filepaths
-USER_APPLICATIONS_DIR="${HOME}/.local/share/applications"
-APPDATA_PATH="${HOME}/.local/share/linoffice"
-# Ensure APPDATA_PATH exists before using it
-mkdir -p "$APPDATA_PATH"
+# Prefix, config, and data directories. See lib/paths.sh.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/paths.sh
+source "${SCRIPT_DIR}/lib/paths.sh" || exit 1
+
+# Optional and explicit. Does not run during a normal setup.
+for _linoffice_arg in "$@"; do
+  if [[ "$_linoffice_arg" == "--refresh-oem" ]]; then
+    exec "$LINOFFICE_SCRIPT" refresh-oem
+  fi
+done
+unset _linoffice_arg
+
+# APPDATA_PATH is the resolved data directory (legacy ~/.local/share/linoffice when that directory already exists).
+APPDATA_PATH="$LINOFFICE_DATA_DIR"
+USER_APPLICATIONS_DIR="$LINOFFICE_APPLICATIONS_DIR"
+linoffice_ensure_dirs || exit 1
+linoffice_seed_config || exit 1
+linoffice_write_paths_env || exit 1
 SUCCESS_FILE="${APPDATA_PATH}/success"
 PROGRESS_FILE="${APPDATA_PATH}/setup_progress.log"
 OUTPUT_LOG="${APPDATA_PATH}/setup_output.log"
 
-# Relative filepaths
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LINOFFICE_DIR="$SCRIPT_DIR"
-LINOFFICE="$(realpath "${SCRIPT_DIR}/linoffice.sh")"
-COMPOSE_FILE="$(realpath "${SCRIPT_DIR}/config/compose.yaml")"
-LINOFFICE_CONF="$(realpath "${SCRIPT_DIR}/config/linoffice.conf")"
-OEM_DIR="$(realpath "${SCRIPT_DIR}/config/oem")"
-LOCALE_REG_SCRIPT="$(realpath "${SCRIPT_DIR}/config/locale_reg.sh")"
-LOCALE_LANG_SCRIPT="$(realpath "${SCRIPT_DIR}/config/locale_lang.sh")"
-REGIONAL_REG="$(realpath "${SCRIPT_DIR}/config/oem/registry/regional_settings.reg")"
+# App files stay in PREFIX. Generated compose/conf/oem stay in CONFIG_DIR.
+LINOFFICE_DIR="$LINOFFICE_PREFIX"
+LINOFFICE="$LINOFFICE_SCRIPT"
+COMPOSE_FILE="$LINOFFICE_COMPOSE_FILE"
+LINOFFICE_CONF="$LINOFFICE_CONF_FILE"
+OEM_DIR="$LINOFFICE_OEM_DIR"
+LOCALE_REG_SCRIPT="$LINOFFICE_PREFIX/config/locale_reg.sh"
+LOCALE_LANG_SCRIPT="$LINOFFICE_PREFIX/config/locale_lang.sh"
+REGIONAL_REG="$LINOFFICE_OEM_DIR/registry/regional_settings.reg"
 LOGFILE="${APPDATA_PATH}/windows_install.log"
-APPS_DIR="$(realpath "${SCRIPT_DIR}/apps")"
-DESKTOP_DIR="$(realpath "${APPS_DIR}/desktop")"
+APPS_DIR="$LINOFFICE_PREFIX/apps"
+DESKTOP_DIR="$APPS_DIR/desktop"
 
 # Available and working freerdp commands
 EXISTS_XFREERDP=false
@@ -87,7 +100,11 @@ print_progress() {
 # Name: 'use_venv'
 # Role: Activate virtual environment if available
 use_venv() {
-  local venv_dir="$HOME/.local/bin/linoffice/venv"
+  local venv_dir="$LINOFFICE_VENV_DIR"
+  local legacy_venv="$LINOFFICE_LEGACY_VENV_DIR"
+  if [[ ! -f "$venv_dir/bin/activate" && -f "$legacy_venv/bin/activate" ]]; then
+    venv_dir="$legacy_venv"
+  fi
   local activate_script="$venv_dir/bin/activate"
 
   print_info "Checking for virtual environment at: $venv_dir"
@@ -139,7 +156,7 @@ PY
         return 1
     fi
   else
-    print_info "Virtual environment not found at $venv_dir, using system Python"
+    print_info "Virtual environment not found at $LINOFFICE_VENV_DIR or $legacy_venv, using system Python"
     return 1
   fi
 }
@@ -180,13 +197,14 @@ use_venv
 
 # Function to display usage information
 print_usage() {
-    print_info "Usage: $0 [--desktop] [--firstrun] [--installoffice] [--healthcheck]"
+    print_info "Usage: $0 [--desktop] [--firstrun] [--installoffice] [--healthcheck] [--refresh-oem]"
     print_info "Options:"
     print_info " (no flag)     Run the installation script from the beginning"
     print_info "  --desktop    Only recreate the desktop files (.desktop launchers)"
     print_info "  --firstrun   Force RDP and Office installation checks"
     print_info "  --installoffice   Only run the Office installation script script (in case the Windows installation has finished but Office is not installed)"
     print_info "  --healthcheck   Check that the system requirements are met and dependencies are installed and the container is healthy"
+    print_info "  --refresh-oem   Copy OEM scripts into an existing Windows VM (does not reinstall Windows)"
     exit 1
 }
 
@@ -619,15 +637,15 @@ function check_requirements() {
         3. If using SELinux/AppArmor, you may need to adjust security contexts"
     fi
 
-    # Check if compose.yaml exists
-    if [ ! -f "$COMPOSE_FILE.default" ]; then
-        exit_with_error "Compose file not found: $COMPOSE_FILE.default
+    # Templates live in PREFIX. Generated compose.yaml / linoffice.conf live in CONFIG_DIR.
+    if [ ! -f "$LINOFFICE_COMPOSE_DEFAULT" ]; then
+        exit_with_error "Compose file not found: $LINOFFICE_COMPOSE_DEFAULT
     Please ensure the file exists in the config directory."
     fi
 
         # Check if LinOffice script exists
-    if [ ! -f "$LINOFFICE_CONF.default" ]; then
-        exit_with_error "LinOffice configuration file not found: $LINOFFICE_CONF.default
+    if [ ! -f "$LINOFFICE_CONF_DEFAULT" ]; then
+        exit_with_error "LinOffice configuration file not found: $LINOFFICE_CONF_DEFAULT
     Please ensure the file exists in the config directory."
     fi
     
@@ -655,9 +673,13 @@ function check_requirements() {
     Please ensure the config directory and local_compose.sh script exist."
     fi
 
-    chmod +x "$LINOFFICE" || exit_with_error "Failed to make $LINOFFICE executable"
-    chmod +x "$LOCALE_REG_SCRIPT" || exit_with_error "Failed to make $LOCALE_REG_SCRIPT executable"
-    chmod +x "$LOCALE_LANG_SCRIPT" || exit_with_error "Failed to make $LOCALE_LANG_SCRIPT executable"
+    if [[ -w "$LINOFFICE" ]]; then
+        chmod +x "$LINOFFICE" || exit_with_error "Failed to make $LINOFFICE executable"
+        chmod +x "$LOCALE_REG_SCRIPT" || exit_with_error "Failed to make $LOCALE_REG_SCRIPT executable"
+        chmod +x "$LOCALE_LANG_SCRIPT" || exit_with_error "Failed to make $LOCALE_LANG_SCRIPT executable"
+    else
+        print_info "PREFIX is not writable; leaving script permissions unchanged."
+    fi
 
     print_success "Made scripts executable"
 
@@ -846,7 +868,7 @@ EOF
     print_info "Running locale configuration scripts"
 
     print_info "Executing: $LOCALE_REG_SCRIPT"
-    if ! "$LOCALE_REG_SCRIPT"; then
+    if ! bash "$LOCALE_REG_SCRIPT" "$REGIONAL_REG"; then
         exit_with_error "Failed to execute $LOCALE_REG_SCRIPT (exit code: $?)"
     fi
 
@@ -903,14 +925,14 @@ function create_container() {
     print_info "Starting podman-compose in detached mode..."
 	# If the compose file doesn't exist yet, initialize it from the default template
 	if [ ! -f "$COMPOSE_FILE" ]; then
-		if [ -f "$COMPOSE_FILE.default" ]; then
+		if [ -f "$LINOFFICE_COMPOSE_DEFAULT" ]; then
 			print_info "Creating $COMPOSE_FILE from default template"
-			cp "$COMPOSE_FILE.default" "$COMPOSE_FILE" || exit_with_error "Failed to copy $COMPOSE_FILE.default to $COMPOSE_FILE"
+			cp "$LINOFFICE_COMPOSE_DEFAULT" "$COMPOSE_FILE" || exit_with_error "Failed to copy $LINOFFICE_COMPOSE_DEFAULT to $COMPOSE_FILE"
 		else
-			exit_with_error "Compose file missing: $COMPOSE_FILE and $COMPOSE_FILE.default not found"
+			exit_with_error "Compose file missing: $COMPOSE_FILE and $LINOFFICE_COMPOSE_DEFAULT not found"
 		fi
 	fi
-    if ! $COMPOSE_COMMAND --file "$COMPOSE_FILE" up -d >>"$LOGFILE" 2>&1; then
+    if ! linoffice_compose up -d >>"$LOGFILE" 2>&1; then
         exit_with_error "Failed to start containers. Check $LOGFILE for details."
     fi
 
@@ -1056,7 +1078,7 @@ function verify_container_health() {
     # Ensure container exists, otherwise create it
     if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
         print_info "Container does not exist. Creating it now with podman-compose up -d..."
-        if ! $COMPOSE_COMMAND --file "$COMPOSE_FILE" up -d; then
+        if ! linoffice_compose up -d; then
             print_error "Failed to create container via compose up -d"
             return 1
         fi
@@ -1067,11 +1089,11 @@ function verify_container_health() {
     # Check if container is running, otherwise start it
     if ! podman ps -q --filter "name=$CONTAINER_NAME" | grep -q .; then
         print_info "Container is not running. Attempting to start it..."
-        if ! $COMPOSE_COMMAND --file "$COMPOSE_FILE" start; then
+        if ! linoffice_compose start; then
             print_error "Failed to start container"
             print_info "Container may be in an improper state. Try these commands to fix it:
             1. podman rm -f LinOffice
-            2. $COMPOSE_COMMAND --file config/compose.yaml up -d"
+            2. $COMPOSE_COMMAND -p linoffice --file \"$LINOFFICE_COMPOSE_FILE\" up -d"
             return 1
         fi
         print_info "Waiting for container to boot..."
@@ -1084,7 +1106,7 @@ function verify_container_health() {
         print_error "Container logs show potential issues"
         print_info "If the container is in an improper state, try these commands to fix it:
         1. podman rm -f LinOffice
-        2. $COMPOSE_COMMAND --file config/compose.yaml up -d"
+        2. $COMPOSE_COMMAND -p linoffice --file \"$LINOFFICE_COMPOSE_FILE\" up -d"
         return 1
     fi
     
@@ -1348,7 +1370,7 @@ function check_available() {
 
 	# 8) Reboot container and retry
 	print_info "Rebooting Windows VM container and retrying checks..."
-	"$COMPOSE_COMMAND" --file "$COMPOSE_FILE" restart >>"$LOGFILE" 2>&1 || true
+	linoffice_compose restart >>"$LOGFILE" 2>&1 || true
 	sleep 10
 	
 	if ! verify_container_health; then
@@ -1410,12 +1432,13 @@ function check_success() {
 	trap cleanup_freerdp EXIT
 
 	# Clear any existing success file once before attempting connections
-	rm -f "$SUCCESS_FILE"
+	linoffice_clear_success
 
 	# Build command arguments based on successful availability check
 	local cmd_args=(
 		/cert:ignore
 		+home-drive
+		"/drive:linoffice,${LINOFFICE_DATA_DIR}"
 		/u:MyWindowsUser
 		/p:MyWindowsPassword
 		/v:127.0.0.1
@@ -1486,7 +1509,7 @@ function check_success() {
 	# Monitor for success file creation
 	while [ $elapsed_time -lt $installation_timeout ]; do
 		# Check if success file exists
-		if [ -f "$SUCCESS_FILE" ]; then
+		if linoffice_success_exists; then
 			print_success "Success file detected - Office installation is complete!"
 			cleanup_freerdp
 			return 0
@@ -1498,7 +1521,7 @@ function check_success() {
 			local exit_code=$?
 			
 			# Check if success file was created before process ended
-			if [ -f "$SUCCESS_FILE" ]; then
+			if linoffice_success_exists; then
 				print_success "Success file detected - Office installation is complete!"
 				return 0
 			fi
@@ -1507,7 +1530,7 @@ function check_success() {
 			print_info "Checking if success file was created..."
 			
 			sleep 2
-			if [ -f "$SUCCESS_FILE" ]; then
+			if linoffice_success_exists; then
 				print_success "Success file found - Office installation completed successfully!"
 				return 0
 			else
@@ -1526,7 +1549,7 @@ function check_success() {
 	print_info "Check log file at $LOGFILE for details"
 	
 	# Final check for success file
-	if [ -f "$SUCCESS_FILE" ]; then
+	if linoffice_success_exists; then
 		print_success "Success file found during cleanup - Office installation completed!"
 		cleanup_freerdp
 		return 0
@@ -1647,6 +1670,7 @@ try_install_office() {
     local cmd_args=(
         /cert:ignore
         +home-drive
+        "/drive:linoffice,${LINOFFICE_DATA_DIR}"
         /u:MyWindowsUser
         /p:MyWindowsPassword
         /v:127.0.0.1
@@ -1775,7 +1799,7 @@ if ! check_progress "$PROGRESS_OFFICE" || [ "$FIRSTRUN" = true ]; then
     if [ "$FIRSTRUN" = true ]; then
         if ! podman ps -q --filter "name=$CONTAINER_NAME" | grep -q .; then
             print_info "Container is not running. Starting LinOffice container for --firstrun..."
-            if ! $COMPOSE_COMMAND --file "$COMPOSE_FILE" start; then
+            if ! linoffice_compose start; then
                 exit_with_error "Failed to start LinOffice container for --firstrun."
             fi
             print_info "Waiting 20 seconds for container to boot..."
@@ -1805,7 +1829,7 @@ else
     print_info "Desktop files already installed, skipping this step. To recreate them, run the script with the --desktop flag."
 fi
 
-# Clean up success file
-rm -f "$SUCCESS_FILE"
+# Clean up success file (data dir and legacy ~/.local/share/linoffice when those differ)
+linoffice_clear_success
 
 print_success "LinOffice setup completed successfully!"

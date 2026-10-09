@@ -17,13 +17,26 @@ readonly EC_INVALID_FLAVOR=15
 
 # PATHS
 readonly SCRIPT_DIR_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-readonly APPDATA_PATH="${HOME}/.local/share/linoffice" # make sure this is the same as in the setup.sh
+# shellcheck source=lib/paths.sh
+source "${SCRIPT_DIR_PATH}/lib/paths.sh" || exit 1
+linoffice_ensure_dirs || exit 1
+linoffice_seed_config || exit 1
+# Locale scripts rewrite compose.yaml and linoffice.conf from the templates.
+# Run them only when this launch just created both files, not on every start.
+if [[ "${LINOFFICE_SEEDED_COMPOSE:-0}" -eq 1 && "${LINOFFICE_SEEDED_CONF:-0}" -eq 1 ]]; then
+    bash "$LINOFFICE_PREFIX/config/locale_reg.sh" || echo "LinOffice: locale_reg.sh failed; continuing with default regional settings." >&2
+    bash "$LINOFFICE_PREFIX/config/locale_lang.sh" || echo "LinOffice: locale_lang.sh failed; continuing with default language settings." >&2
+fi
+linoffice_write_paths_env || true
+readonly APPDATA_PATH="$LINOFFICE_DATA_DIR" # resolved the same way as setup.sh
 readonly LASTRUN_PATH="${APPDATA_PATH}/lastrun"
 readonly SLEEP_DETECT_PATH="${APPDATA_PATH}/last_activity"
 readonly SLEEP_MARKER="${APPDATA_PATH}/sleep_marker"
 readonly LOG_PATH="${APPDATA_PATH}/linoffice.log"
-readonly CONFIG_PATH="$(realpath "${SCRIPT_DIR_PATH}/config/linoffice.conf")"
-readonly COMPOSE_PATH="$(realpath "${SCRIPT_DIR_PATH}/config/compose.yaml")"
+readonly CONFIG_PATH="$LINOFFICE_CONF_FILE"
+readonly COMPOSE_PATH="$LINOFFICE_COMPOSE_FILE"
+# Extra FreeRDP share. Filled in after linoffice.conf is loaded so RDP_FLAGS cannot drop it.
+LINOFFICE_DRIVE_ARGS=()
 
 # MULTI-INSTANCE COORDINATION - NEW
 readonly INSTANCE_ID="${RANDOM}_$$"
@@ -395,9 +408,9 @@ waPrepareSplashInfo() {
     case "$1" in
         word|excel|powerpoint|onenote|outlook)
             local info_file=""
-            if [ -e "${SCRIPT_DIR_PATH}/apps/${1}/info.txt" ]; then
-                info_file="${SCRIPT_DIR_PATH}/apps/${1}/info.txt"
-                SPLASH_ICON="${SCRIPT_DIR_PATH}/apps/${1}/icon.svg"
+            if [ -e "${LINOFFICE_PREFIX}/apps/${1}/info.txt" ]; then
+                info_file="${LINOFFICE_PREFIX}/apps/${1}/info.txt"
+                SPLASH_ICON="${LINOFFICE_PREFIX}/apps/${1}/icon.svg"
             elif [ -e "${APPDATA_PATH}/apps/${1}/info.txt" ]; then
                 info_file="${APPDATA_PATH}/apps/${1}/info.txt"
                 SPLASH_ICON="${APPDATA_PATH}/apps/${1}/icon.svg"
@@ -450,7 +463,7 @@ waSplashShow() {
         return 1
     fi
 
-    local splash_script="${SCRIPT_DIR_PATH}/gui/splash.py"
+    local splash_script="${LINOFFICE_PREFIX}/gui/splash.py"
     if [ ! -f "$splash_script" ]; then
         return 1
     fi
@@ -547,7 +560,7 @@ waResetSystem() {
     # 3. Reboot Windows VM
     dprint "REBOOTING WINDOWS VM"
     echo -e "Rebooting Windows VM..."
-    "$COMPOSE_COMMAND" --file "$COMPOSE_PATH" restart &>/dev/null
+    linoffice_compose restart &>/dev/null
     
     # Wait for container to restart
     local max_wait_time=300
@@ -640,6 +653,8 @@ function waLoadConfig() {
     # Source: https://techcommunity.microsoft.com/t5/security-compliance-and-identity/terminal-services-remoteapp-8482-session-termination-logic/ba-p/246566
     AUTOPAUSE_TIME=$((AUTOPAUSE_TIME - 20))
     AUTOPAUSE_TIME=$((AUTOPAUSE_TIME < 0 ? 0 : AUTOPAUSE_TIME))
+    # Dedicated share for the data directory. The home share stays the real $HOME.
+    LINOFFICE_DRIVE_ARGS=( "/drive:linoffice,${LINOFFICE_DATA_DIR}" )
     # Validate CLEANUP_TIME_WINDOW
     if [[ ! "$CLEANUP_TIME_WINDOW" =~ ^[0-9]+$ ]] && [ "$CLEANUP_TIME_WINDOW" != "unlimited" ]; then
         dprint "WARNING: Invalid CLEANUP_TIME_WINDOW '$CLEANUP_TIME_WINDOW'. Defaulting to 24 hours = 86400 seconds."
@@ -753,7 +768,7 @@ function waCheckContainerRunning() {
         dprint "WINDOWS CONTAINER MISSING. RECREATING."
         echo -e "Creating Windows container."
         waSplashShow "Creating Windows container..."
-        $COMPOSE_COMMAND --file "$COMPOSE_PATH" up -d &>/dev/null
+        linoffice_compose up -d &>/dev/null
         NEEDED_BOOT=true
         # Give podman a moment to register the container before inspecting
         sleep 2
@@ -771,7 +786,7 @@ function waCheckContainerRunning() {
             dprint "WINDOWS CREATED. BOOTING WINDOWS."
             echo -e "Booting Windows."
             waSplashShow "Booting Windows..."
-            $COMPOSE_COMMAND --file "$COMPOSE_PATH" start &>/dev/null
+            linoffice_compose start &>/dev/null
             NEEDED_BOOT=true
             ;;
         "restarting")
@@ -794,20 +809,20 @@ function waCheckContainerRunning() {
         "paused")
             dprint "WINDOWS PAUSED. RESUMING WINDOWS."
             echo -e "Resuming Windows."
-            $COMPOSE_COMMAND --file "$COMPOSE_PATH" unpause &>/dev/null
+            linoffice_compose unpause &>/dev/null
             ;;
         "exited")
             dprint "WINDOWS SHUT OFF. BOOTING WINDOWS."
             echo -e "Booting Windows."
             waSplashShow "Booting Windows..."
-            $COMPOSE_COMMAND --file "$COMPOSE_PATH" start &>/dev/null
+            linoffice_compose start &>/dev/null
             NEEDED_BOOT=true
             ;;
         "dead")
             dprint "WINDOWS DEAD. RECREATING WINDOWS CONTAINER."
             echo -e "Re-creating and booting Windows."
             waSplashShow "Re-creating Windows container..."
-            $COMPOSE_COMMAND --file "$COMPOSE_PATH" down &>/dev/null && $COMPOSE_COMMAND --file "$COMPOSE_PATH" up -d &>/dev/null
+            linoffice_compose down &>/dev/null && linoffice_compose up -d &>/dev/null
             NEEDED_BOOT=true
             ;;
         "unknown"|"")
@@ -895,7 +910,7 @@ function waTimeSync() {
             echo -e "Detected system sleep/wake cycle. Creating sleep marker to sync Windows time..."
             
             # Create sleep marker which will be monitored by Windows VM to trigger time sync
-            touch "$SLEEP_MARKER"
+            linoffice_legacy_data_fallback_write "sleep_marker" --touch
             
             dprint "CREATED SLEEP MARKER"
         fi
@@ -930,6 +945,7 @@ function waRunCommand() {
         printf "\033[1m./linoffice.sh cleanup [--full|--reset]\033[0m -> cleans up Office lock files (such as ~\$file.xlsx) in the home folder and removable media; --full cleans all files regardless of creation date, --reset resets the last cleanup timestamp\n"
         printf "\033[1m./linoffice.sh --startcontainer\033[0m -> will start the Windows container if it is not running and not execute anything else\n"
         printf "\033[1m./linoffice.sh --stopcontainer\033[0m -> shuts down the Windows container completely\n"
+        printf "\033[1m./linoffice.sh refresh-oem\033[0m -> copy current OEM scripts into an existing Windows VM (optional; does not reinstall Windows)\n"
         exit 0
     fi
 
@@ -968,6 +984,7 @@ function waRunCommand() {
             +dynamic-resolution \
             +auto-reconnect \
             +home-drive \
+            "${LINOFFICE_DRIVE_ARGS[@]}" \
             +clipboard \
             -wallpaper \
             $RDP_KBD \
@@ -988,6 +1005,7 @@ function waRunCommand() {
             /scale:$RDP_SCALE \
             +auto-reconnect \
             +home-drive \
+            "${LINOFFICE_DRIVE_ARGS[@]}" \
             +clipboard \
             -wallpaper \
             $RDP_KBD \
@@ -1007,6 +1025,7 @@ function waRunCommand() {
             /scale:$RDP_SCALE \
             +auto-reconnect \
             +home-drive \
+            "${LINOFFICE_DRIVE_ARGS[@]}" \
             +clipboard \
             -wallpaper \
             $RDP_KBD \
@@ -1027,6 +1046,7 @@ function waRunCommand() {
             /scale:$RDP_SCALE \
             +auto-reconnect \
             +home-drive \
+            "${LINOFFICE_DRIVE_ARGS[@]}" \
             +clipboard \
             -wallpaper \
             $RDP_KBD \
@@ -1047,6 +1067,7 @@ function waRunCommand() {
             /scale:$RDP_SCALE \
             +auto-reconnect \
             +home-drive \
+            "${LINOFFICE_DRIVE_ARGS[@]}" \
             +clipboard \
             -wallpaper \
             $RDP_KBD \
@@ -1067,6 +1088,7 @@ function waRunCommand() {
             /scale:$RDP_SCALE \
             +auto-reconnect \
             +home-drive \
+            "${LINOFFICE_DRIVE_ARGS[@]}" \
             +clipboard \
             -wallpaper \
             $RDP_KBD \
@@ -1079,9 +1101,9 @@ function waRunCommand() {
 
     else
         # Script summoned from right-click menu or application icon (plus/minus a file path).
-        if [ -e "${SCRIPT_DIR_PATH}/apps/${1}/info.txt" ]; then
-            source "${SCRIPT_DIR_PATH}/apps/${1}/info.txt"
-            ICON="${SCRIPT_DIR_PATH}/apps/${1}/icon.svg"
+        if [ -e "${LINOFFICE_PREFIX}/apps/${1}/info.txt" ]; then
+            source "${LINOFFICE_PREFIX}/apps/${1}/info.txt"
+            ICON="${LINOFFICE_PREFIX}/apps/${1}/icon.svg"
         elif [ -e "${APPDATA_PATH}/apps/${1}/info.txt" ]; then
             source "${APPDATA_PATH}/apps/${1}/info.txt"
             ICON="${APPDATA_PATH}/apps/${1}/icon.svg"
@@ -1107,6 +1129,7 @@ function waRunCommand() {
                 /scale:$RDP_SCALE \
                 +auto-reconnect \
                 +home-drive \
+                "${LINOFFICE_DRIVE_ARGS[@]}" \
                 +clipboard \
                 -wallpaper \
                 $RDP_KBD \
@@ -1138,6 +1161,7 @@ function waRunCommand() {
                 /scale:$RDP_SCALE \
                 +auto-reconnect \
                 +home-drive \
+                "${LINOFFICE_DRIVE_ARGS[@]}" \
                 +clipboard \
                 /drive:media,"$REMOVABLE_MEDIA" \
                 -wallpaper \
@@ -1234,14 +1258,18 @@ function waCheckIdle() {
     if [ "$SUSPEND_WINDOWS" -eq 1 ]; then
         dprint "IDLE FOR ${AUTOPAUSE_TIME} SECONDS. SUSPENDING WINDOWS."
         echo -e "Pausing Windows due to inactivity."
-        "$COMPOSE_COMMAND" --file "$COMPOSE_PATH" pause &>/dev/null
+        linoffice_compose pause &>/dev/null
     fi
 }
 
 # Name: 'use_venv'
 # Role: Activate virtual environment if available
 use_venv() {
-  local venv_dir="$HOME/.local/bin/linoffice/venv"
+  local venv_dir="$LINOFFICE_VENV_DIR"
+  local legacy_venv="$LINOFFICE_LEGACY_VENV_DIR"
+  if [[ ! -f "$venv_dir/bin/activate" && -f "$legacy_venv/bin/activate" ]]; then
+    venv_dir="$legacy_venv"
+  fi
   local activate_script="$venv_dir/bin/activate"
   
   if [[ -f "$activate_script" ]]; then
@@ -1265,9 +1293,97 @@ use_venv() {
     fi
     return 0
   else
-    echo "Virtual environment not found at $venv_dir"
+    echo "Virtual environment not found at $LINOFFICE_VENV_DIR or $legacy_venv"
     return 1
   fi
+}
+
+# Name: 'linoffice_refresh_oem'
+# Role: Copy the working OEM scripts into an existing VM. Never creates or recreates the VM.
+linoffice_refresh_oem() {
+    local stage="$LINOFFICE_DATA_DIR/oem-refresh"
+    local legacy_stage="$LEGACY_DATA_DIR/oem-refresh"
+    local f log rc state
+
+    mkdir -p "$stage" || return 1
+    for f in "$LINOFFICE_OEM_DIR"/*.ps1 "$LINOFFICE_OEM_DIR"/*.bat; do
+        [[ -f "$f" ]] || continue
+        cp -f "$f" "$stage/" || return 1
+    done
+    cat > "$stage/ApplyOemRefresh.ps1" <<'EOF'
+$ErrorActionPreference = "Stop"
+$sources = @(
+    "\\tsclient\linoffice\oem-refresh",
+    "\\tsclient\home\.local\share\linoffice\oem-refresh"
+)
+$src = $null
+foreach ($candidate in $sources) {
+    if (Test-Path $candidate) { $src = $candidate; break }
+}
+if (-not $src) { Write-Output "oem-refresh folder not found"; exit 1 }
+New-Item -ItemType Directory -Force -Path "C:\OEM" | Out-Null
+Get-ChildItem -Path $src -File | Where-Object { $_.Name -ne "ApplyOemRefresh.ps1" } | ForEach-Object {
+    Copy-Item -Path $_.FullName -Destination (Join-Path "C:\OEM" $_.Name) -Force
+}
+$timeSync = Join-Path $src "TimeSync.ps1"
+if (Test-Path $timeSync) {
+    Copy-Item -Path $timeSync -Destination (Join-Path $env:windir "TimeSync.ps1") -Force
+}
+Write-Output "oem refresh done"
+exit 0
+EOF
+    if [[ "$(realpath -m "$stage")" != "$(realpath -m "$legacy_stage")" ]]; then
+        mkdir -p "$legacy_stage"
+        cp -a "$stage"/. "$legacy_stage/"
+    fi
+
+    if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
+        echo "LinOffice container is not installed. refresh-oem does not create a Windows VM."
+        return 1
+    fi
+    state="$(podman inspect --format='{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || true)"
+    case "$state" in
+        running) ;;
+        paused)
+            echo "Unpausing LinOffice..."
+            linoffice_compose unpause || return 1
+            ;;
+        exited|created)
+            echo "Starting LinOffice..."
+            linoffice_compose start || return 1
+            ;;
+        *)
+            echo "LinOffice container is '$state'. refresh-oem will not recreate it."
+            return 1
+            ;;
+    esac
+
+    if [[ -z "${FREERDP_COMMAND[*]:-}" ]]; then
+        echo "FreeRDP is not available, so the guest copy was not started."
+        echo "OEM scripts were staged at $stage"
+        return 1
+    fi
+
+    echo "Copying OEM scripts into the Windows VM (C:\\OEM and %windir%\\TimeSync.ps1)."
+    echo "This does not reinstall Windows."
+    log="$LINOFFICE_DATA_DIR/oem-refresh.log"
+    podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+        /u:"$RDP_USER" \
+        /p:"$RDP_PASS" \
+        /cert:ignore \
+        +home-drive \
+        "/drive:linoffice,${LINOFFICE_DATA_DIR}" \
+        $RDP_FLAGS \
+        /app:program:"C:\Windows\System32\cmd.exe",cmd:"/c if exist \\\\tsclient\\linoffice\\oem-refresh\\ApplyOemRefresh.ps1 (C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -File \\\\tsclient\\linoffice\\oem-refresh\\ApplyOemRefresh.ps1) else C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -File \\\\tsclient\\home\\.local\\share\\linoffice\\oem-refresh\\ApplyOemRefresh.ps1" \
+        /v:"$RDP_IP:$RDP_PORT" >"$log" 2>&1
+    rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+        echo "OEM scripts refreshed. Log: $log"
+    else
+        echo "OEM refresh failed (exit $rc). See $log"
+        echo "The Windows VM was not recreated."
+    fi
+    return "$rc"
 }
 
 ### MAIN LOGIC ###
@@ -1283,7 +1399,7 @@ if [[ "$1" == "--stopcontainer" ]]; then
     # If the container is paused, it must be un-paused first to shut down cleanly
     if [[ "$CONTAINER_STATUS" == "paused" ]]; then
         echo "Container is paused, unpausing to allow clean shutdown..."
-        "$COMPOSE_COMMAND" --file "$COMPOSE_PATH" unpause &>/dev/null
+        linoffice_compose unpause &>/dev/null
         sleep 2 # Give it a moment to wake up before stopping
     fi
 
@@ -1326,6 +1442,13 @@ elif command -v podman-compose &>/dev/null; then
 else
     echo "ERROR: No working podman-compose found"
     exit 1
+fi
+
+# refresh-oem must not go through waCheckContainerRunning: that function creates
+# a missing container. This command only updates scripts in a VM that already exists.
+if [[ "${1:-}" == "refresh-oem" ]]; then
+    linoffice_refresh_oem
+    exit $?
 fi
 
 waPrepareSplashInfo "$@"

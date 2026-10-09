@@ -4,6 +4,12 @@ import subprocess
 import os
 import signal
 import time
+from pathlib import Path
+
+_LIB_DIR = Path(__file__).resolve().parents[2] / "lib"
+if str(_LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(_LIB_DIR))
+from paths import SETUP_SCRIPT, read_data_path
 
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QDialog, QLabel,
@@ -58,6 +64,8 @@ def ansi_to_html(text):
 class Wizard(QWidget):
     def __init__(self):
         super().__init__()
+        # UI files are loaded by a relative path.
+        os.chdir(os.path.dirname(os.path.abspath(__file__)))
         self.setWindowTitle("LinOffice Installer")
         self.setMinimumSize(600, 400)
 
@@ -138,8 +146,7 @@ class Wizard(QWidget):
             self.abort_button.clicked.connect(self.confirm_abort)
 
         self.process = QProcess(self)
-        # Get the path to the setup.sh located two directories above
-        setup_script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "setup.sh")
+        setup_script_path = str(SETUP_SCRIPT)
         
         # Debugging: Print the path to ensure it's correct
         print(f"Setup script path: {setup_script_path}")
@@ -242,7 +249,7 @@ class Wizard(QWidget):
             QTimer.singleShot(100, self.start_installation)
 
         def on_show_log():
-            log_path = os.path.expanduser("~/.local/share/linoffice/windows_install.log")
+            log_path = str(read_data_path("windows_install.log"))
             QDesktopServices.openUrl(QUrl.fromLocalFile(log_path))
             # Keep dialog open
 
