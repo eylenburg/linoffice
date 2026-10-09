@@ -21,20 +21,20 @@ response=$(echo "$response" | tr '[:upper:]' '[:lower:]')
 if [[ "$response" == "y" || "$response" == "yes" ]]; then
     echo "Deleting LinOffice container and data..."
     if [[ -n "$COMPOSE_FILE" && -f "$COMPOSE_FILE" ]]; then
-        (cd "$CONFIG_DIR" && podman-compose -p linoffice --file "$COMPOSE_FILE" down) || true
+        (cd "$CONFIG_DIR" && podman-compose -p linoffice --file "$COMPOSE_FILE" down) >/dev/null 2>&1 || true
     fi
+    # Podman runs on the host. /app is not a host path, so leave the installer directory.
+    cd "${HOME:-/}"
     # Name and volume stay LinOffice / linoffice_data so an existing VM is the one removed.
     # A missing container or volume counts as success.
-    podman rm -f LinOffice
-    rm_status=$?
-    podman volume rm linoffice_data
-    vol_status=$?
-    if [[ "$rm_status" -ne 0 ]] && podman inspect LinOffice >/dev/null 2>&1; then
-        echo "Error: Failed to delete LinOffice container or data."
+    podman rm -f LinOffice >/dev/null 2>&1 || true
+    podman volume rm linoffice_data >/dev/null 2>&1 || true
+    if podman inspect LinOffice >/dev/null 2>&1; then
+        echo "Error: Failed to delete LinOffice container."
         exit 1
     fi
-    if [[ "$vol_status" -ne 0 ]] && podman volume inspect linoffice_data >/dev/null 2>&1; then
-        echo "Error: Failed to delete LinOffice container or data."
+    if podman volume inspect linoffice_data >/dev/null 2>&1; then
+        echo "Error: Failed to delete LinOffice data volume."
         exit 1
     fi
     echo "Successfully deleted LinOffice container and data."

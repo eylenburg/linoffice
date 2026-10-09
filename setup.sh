@@ -383,7 +383,9 @@ function check_requirements() {
     # Additional check for KVM support. Inside Flatpak, /dev/kvm belongs to the
     # host: Podman is the host binary, and this sandbox does not get the device.
     if [[ -n "${FLATPAK_ID:-}" ]]; then
-        flatpak-spawn --host test -e /dev/kvm
+        # --directory must exist on the host. The sandbox cwd is /app, and
+        # flatpak-spawn fails instead of testing /dev/kvm when that path is used.
+        flatpak-spawn --host --directory="$HOME" test -e /dev/kvm
         kvm_present=$?
     elif [ -e /dev/kvm ]; then
         kvm_present=0
@@ -619,9 +621,14 @@ function check_requirements() {
 
     print_success "FreeRDP found. Using FreeRDP command '${FREERDP_COMMAND}'."
 
-    # Check if iptables modules are loaded
+    # Check if iptables modules are loaded. Inside Flatpak, lsmod must run on the host.
     print_info "Checking iptables kernel modules"
-    if ! lsmod | grep -q ip_tables || ! lsmod | grep -q iptable_nat; then
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        module_list=$(flatpak-spawn --host --directory="$HOME" lsmod 2>/dev/null || true)
+    else
+        module_list=$(lsmod 2>/dev/null || true)
+    fi
+    if ! echo "$module_list" | grep -q ip_tables || ! echo "$module_list" | grep -q iptable_nat; then
         print_info "WARNING: iptables kernel modules not loaded. Sharing the /home folder with the Windows VM will not work unless connected via RDP. HOW TO FIX:
         
     Run the following command:
@@ -700,7 +707,7 @@ function check_requirements() {
     # Inside Flatpak, /etc is the runtime image. Host Podman reads the host files.
     subuid_grep=(grep)
     if [[ -n "${FLATPAK_ID:-}" ]]; then
-        subuid_grep=(flatpak-spawn --host grep)
+        subuid_grep=(flatpak-spawn --host --directory="$HOME" grep)
     fi
     if ! "${subuid_grep[@]}" -q "^$(whoami):" /etc/subuid || ! "${subuid_grep[@]}" -q "^$(whoami):" /etc/subgid; then
         exit_with_error "Missing subUID/subGID mappings for the user.

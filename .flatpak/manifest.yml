@@ -130,19 +130,16 @@ modules:
         EOF
         cat > /app/bin/podman <<'EOF'
         #!/bin/sh
-        # Host Podman. Skip --directory for sandbox-only paths such as /app:
-        # flatpak-spawn fails when that directory does not exist on the host.
-        # The XDG config directory does exist on the host and must be kept.
+        # Host Podman. Always pass a directory that exists on the host.
+        # Omitting --directory makes flatpak-spawn use the sandbox cwd, and it
+        # fails when that path is /app.
         dir=$PWD
         case $dir in
-            /app|/app/*|/usr|/usr/*)
-                dir=
+            /app|/app/*|/usr|/usr/*|"")
+                dir=$HOME
                 ;;
         esac
-        if [ -n "$dir" ]; then
-            exec flatpak-spawn --host --directory="$dir" podman "$@"
-        fi
-        exec flatpak-spawn --host podman "$@"
+        exec flatpak-spawn --host --directory="$dir" podman "$@"
         EOF
         chmod 0755 /app/bin/linoffice /app/bin/linoffice-gui /app/bin/podman
         app_id=io.github.eylenburg.LinOffice
