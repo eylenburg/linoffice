@@ -46,7 +46,7 @@ services:
       - 127.0.0.1:3388:3389/udp # Map '3388' on Linux host to '3389' on Windows VM --> For Remote Desktop Protocol (RDP). 3388 is chosen to avoid conflict with the standard RDP and WinApps port 3389, in case there are two VMs running.
     cap_add:
       - NET_ADMIN  # Add network permission
-      - NET_RAW    # Required by dnsmasq for dockur's NAT networking; without it the container falls back to user-mode (passt) networking, which breaks RDP port forwarding from the host
+      - NET_RAW    # dnsmasq needs this for NAT. Without it dockur falls back to user-mode networking.
     stop_grace_period: 120s # Wait 120 seconds before sending SIGTERM when attempting to shut down the Windows VM.
     restart: on-failure # Restart the Windows VM if the exit code indicates an error.
     volumes:
@@ -66,13 +66,87 @@ services:
     # dockur forces iptables-legacy. Fedora's kernel has nft NAT and does not
     # load ip_tables, so that call fails and dockur drops the guest to slirp.
     # Point those commands at iptables-nft before the image entry script runs.
+    # Rootless Podman then dials 127.0.0.1 inside the container. Dockur NAT
+    # never listens there (it only DNATs packets that arrive on eth0), so the
+    # published RDP port is reset. After the tap bridge stays up, splice
+    # container port 3389 to the guest. User-mode networking already listens
+    # on 3389 and must not be wrapped.
     entrypoint:
       - /usr/bin/tini
       - -s
       - /bin/sh
       - --
       - -c
-      - sed -i -e 's#/usr/sbin/iptables-legacy#/usr/sbin/iptables-nft#g' -e 's#/usr/sbin/ip6tables-legacy#/usr/sbin/ip6tables-nft#g' /run/network.sh && exec /run/entry.sh
+      - |
+        sed -i -e 's#/usr/sbin/iptables-legacy#/usr/sbin/iptables-nft#g' -e 's#/usr/sbin/ip6tables-legacy#/usr/sbin/ip6tables-nft#g' /run/network.sh || exit 1
+        cat > /run/rdp-proxy.py << 'PY'
+        import os, socket, threading
+        guest = os.environ.get("VM_NET_IP") or "20.20.20.21"
+        dest = (guest, 3389)
+
+        def pump(src, dst):
+            try:
+                while True:
+                    data = src.recv(262144)
+                    if not data:
+                        break
+                    dst.sendall(data)
+            except Exception:
+                pass
+            for sock in (src, dst):
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except Exception:
+                    pass
+
+        def handle(client):
+            try:
+                remote = socket.create_connection(dest, 10)
+            except Exception:
+                client.close()
+                return
+            for sock in (client, remote):
+                try:
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                except Exception:
+                    pass
+            back = threading.Thread(target=pump, args=(remote, client), daemon=True)
+            back.start()
+            pump(client, remote)
+            back.join()
+            client.close()
+            remote.close()
+
+        server = socket.socket()
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(("0.0.0.0", 3389))
+        server.listen(64)
+        print("RDP proxy listening on 3389 -> %s:3389" % guest, flush=True)
+        while True:
+            client, _addr = server.accept()
+            threading.Thread(target=handle, args=(client,), daemon=True).start()
+        PY
+        (
+          i=0
+          while [ "$$i" -lt 90 ]; do
+            if ip link show dockerbridge >/dev/null 2>&1; then
+              sleep 2
+              if ip link show dockerbridge >/dev/null 2>&1; then
+                guest=$$(iptables -t nat -S PREROUTING 2>/dev/null | sed -n 's/.*--to-destination \([0-9.]*\).*/\1/p' | head -n 1)
+                [ -n "$$guest" ] || guest=$${VM_NET_IP:-20.20.20.21}
+                echo "Starting RDP proxy to $${guest}:3389"
+                VM_NET_IP="$$guest" python3 -u /run/rdp-proxy.py
+                exit 0
+              fi
+            fi
+            if ss -H -lnt 'sport = :3389' 2>/dev/null | grep -q .; then
+              exit 0
+            fi
+            i=$$((i + 1))
+            sleep 1
+          done
+        ) &
+        exec /run/entry.sh
     # The below lines are for using rootless podman containers. Make sure to add your user to the 'kvm' group or another that can access /dev/kvm. to make /dev/kvm work with podman. needs "crun" installed, "runc" will not work! 
     group_add:      
      - keep-groups 
