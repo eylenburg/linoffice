@@ -5,6 +5,11 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import QFileInfo
 from pathlib import Path
 
+_LIB_DIR = Path(__file__).resolve().parents[1] / "lib"
+if str(_LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(_LIB_DIR))
+from paths import read_data_path
+
 def container_exists(container_name="LinOffice"):
     try:
         result = subprocess.run(
@@ -16,7 +21,9 @@ def container_exists(container_name="LinOffice"):
     except Exception:
         return False
 
-def setup_successful(log_path="~/.local/share/linoffice/setup_progress.log"):
+def setup_successful(log_path=None):
+    if log_path is None:
+        log_path = str(read_data_path("setup_progress.log"))
     try:
         log_file = Path(log_path).expanduser()
         if not log_file.exists():
@@ -43,7 +50,7 @@ def main():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     mainwindow_path = os.path.join(base_dir, "mainwindow.py")
     installer_path = os.path.join(base_dir, "installer", "installer.py")
-    log_path = "~/.local/share/linoffice/setup_progress.log"
+    log_path = str(read_data_path("setup_progress.log"))
 
     container_found = container_exists("LinOffice")
     success = setup_successful(log_path)

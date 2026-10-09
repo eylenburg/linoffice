@@ -1,0 +1,3 @@
+SleepMarker=\\tsclient\linoffice\sleep_marker
+Success=\\tsclient\linoffice\success
+RegistryOverride=\\tsclient\linoffice\registry_override.conf

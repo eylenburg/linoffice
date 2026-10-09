@@ -23,9 +23,33 @@ try {
 
     Write-Log "RDP session detected"
 
-    # Test if we can access the share
-    if (Test-Path "\\tsclient\home\.local\share\linoffice") {
-        Write-Log "\\tsclient\home\.local\share\linoffice is accessible"
+    # Proceed when either the linoffice share or the legacy home share is accessible.
+    # C:\OEM\linoffice_paths.txt may prepend a Success= path.
+    $shareCandidates = @(
+        "\\tsclient\linoffice",
+        "\\tsclient\home\.local\share\linoffice"
+    )
+    $successCandidates = @(
+        "\\tsclient\linoffice\success",
+        "\\tsclient\home\.local\share\linoffice\success"
+    )
+    $pathsFile = "C:\OEM\linoffice_paths.txt"
+    if (Test-Path $pathsFile) {
+        foreach ($line in Get-Content -Path $pathsFile -Encoding UTF8) {
+            if ($line -match '^Success=(.+)$') {
+                $successCandidates = @($matches[1].Trim()) + $successCandidates
+            }
+        }
+    }
+    $shareOk = $false
+    foreach ($share in $shareCandidates) {
+        if (Test-Path $share) {
+            Write-Log "$share is accessible"
+            $shareOk = $true
+            break
+        }
+    }
+    if ($shareOk) {
 
         # Run QuickAccess.ps1
         Write-Log "Running QuickAccess.ps1..."
@@ -55,13 +79,25 @@ try {
             Write-Log "Office binaries detected; proceeding to create Linux-side success marker."
         }
 
-        # Create success file with current time in \\tsclient\home 
-        Write-Log "Creating success file with current time in \\tsclient\home\.local\share\linoffice\success..."
+        # Write success to every reachable target (new share, then the legacy home share).
+        Write-Log "Creating success file on the LinOffice share and \\tsclient\home\.local\share\linoffice\success..."
         $currentTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        $currentTime | Out-File -FilePath "\\tsclient\home\.local\share\linoffice\success" -Force
-        if ($?) {
-            Write-Log "success file created successfully with timestamp: $currentTime"
-        } else {
+        $wrote = $false
+        foreach ($target in $successCandidates) {
+            try {
+                $parent = Split-Path $target -Parent
+                if (Test-Path $parent) {
+                    $currentTime | Out-File -FilePath $target -Force
+                    if ($?) {
+                        $wrote = $true
+                        Write-Log "success file created at ${target} with timestamp: $currentTime"
+                    }
+                }
+            } catch {
+                Write-Log "Failed to create success file at ${target}: $_"
+            }
+        }
+        if (-not $wrote) {
             Write-Log "Failed to create success file"
             exit 1
         }
@@ -71,7 +107,7 @@ try {
         tsdiscon
         exit 0
     } else {
-        Write-Log "\\tsclient\\home is not accessible yet"
+        Write-Log "\\tsclient\linoffice and \\tsclient\home\.local\share\linoffice are not accessible yet"
         exit 1
     }
 } catch {
