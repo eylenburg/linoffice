@@ -21,9 +21,6 @@
     <p>
       FreeRDP, podman-compose, and PySide6 are included in this package. Podman has to be installed on the host. LinOffice uses that host Podman to run the virtual machine, and it needs access to your home directory so Office can open your files.
     </p>
-    <p>
-      The release listed here is 2.3.1, the latest tagged release. A local build from the experimental tree may contain newer changes than that tag.
-    </p>
   </description>
   <url type="homepage">https://github.com/eylenburg/linoffice</url>
   <url type="bugtracker">https://github.com/eylenburg/linoffice/issues</url>
@@ -66,7 +63,7 @@
     <content_attribute id="money-gambling">none</content_attribute>
   </content_rating>
   <releases>
-    <release version="2.3.1" date="2026-09-28"/>
+    <release version="2.99.0" date="2026-10-09"/>
   </releases>
   <categories>
     <category>Office</category>
