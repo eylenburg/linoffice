@@ -49,6 +49,8 @@ FREERDP_COMMAND="" # will be checked in the script whether it's xfreerdp, xfreer
 FREERDP_SEC_RDP=false
 FREERDP_NETWORK_LAN=false
 FREERDP_NSC=false
+# Flags saved when the NSCodec fallback is the one that connected.
+FREERDP_NSC_FLAGS=""
 FREERDP_XWAYLAND=false
 
 # Progress tracking states
@@ -1156,10 +1158,15 @@ function update_config_file() {
         rdp_flags=""
     fi
     
-    # Remove flags if corresponding var is false
-    if [[ "$FREERDP_NSC" != "true" ]]; then
-        rdp_flags=$(echo "$rdp_flags" | sed 's| /gfx:off /nsc||g; s|^/gfx:off /nsc ||; s| /gfx:off /nsc$||')
-    fi
+    # Remove flags if corresponding var is false. FreeRDP 2 used /gfx:off.
+    # FreeRDP 3 rejects that value, so the v3 form is stored separately.
+    rdp_flags=$(echo "$rdp_flags" | sed \
+        -e 's| /tune:FreeRDP_SupportGraphicsPipeline:false /nsc||g' \
+        -e 's|^/tune:FreeRDP_SupportGraphicsPipeline:false /nsc ||' \
+        -e 's| /tune:FreeRDP_SupportGraphicsPipeline:false /nsc$||' \
+        -e 's| /gfx:off /nsc||g' \
+        -e 's|^/gfx:off /nsc ||' \
+        -e 's| /gfx:off /nsc$||')
     if [[ "$FREERDP_NETWORK_LAN" != "true" ]]; then
         rdp_flags=$(echo "$rdp_flags" | sed 's| /network:lan||g; s|^/network:lan ||; s| /network:lan$||')
     fi
@@ -1169,8 +1176,9 @@ function update_config_file() {
     
     # Add flags if corresponding var is true (trim and add if not already present, but per spec, just add)
     if [[ "$FREERDP_NSC" == "true" ]]; then
-        if ! echo "$rdp_flags" | grep -q "/gfx:off /nsc"; then
-            rdp_flags="$rdp_flags /gfx:off /nsc"
+        local nsc_flags="${FREERDP_NSC_FLAGS:-/gfx:off /nsc}"
+        if ! echo "$rdp_flags" | grep -qF "$nsc_flags"; then
+            rdp_flags="$rdp_flags $nsc_flags"
         fi
     fi
     if [[ "$FREERDP_NETWORK_LAN" == "true" ]]; then
@@ -1207,6 +1215,15 @@ function check_available() {
 	fi
 	print_step "7" "Checking if everything is set up correctly"
 	print_info "Checking if RDP server is available"
+
+	# xfreerdp3 is an X11 client. A Wayland session leaves DISPLAY empty unless
+	# the X11 socket is shared, and every probe then dies before connecting.
+	if [[ -z "${DISPLAY:-}" ]]; then
+		print_error "FreeRDP has no DISPLAY, so it cannot open a window."
+		if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+			print_info "This is a Wayland session. xfreerdp3 also needs the X11 socket (Xwayland)."
+		fi
+	fi
 
 	# Prepare candidate list based on availability
 	local candidates=()
@@ -1273,6 +1290,11 @@ function check_available() {
 		error_lines=$(echo "$output" | grep -F "ERROR" || true)
 		if [ -n "$error_lines" ]; then echo "$error_lines"; fi
 		
+		# A display or parse error never reached Windows. Other failures did.
+		if ! echo "$output" | grep -qE 'failed to open display|Command line parsing failed'; then
+			RDP_REACHED_SERVER=true
+		fi
+
 		# Success when user logoff detected
 		if echo "$output" | grep -q "ERRINFO_LOGOFF_BY_USER"; then
 			print_success "RDP server is available (user logoff detected)"
@@ -1280,6 +1302,25 @@ function check_available() {
 			return 0   
 		fi
 		return 1
+	}
+
+	# FreeRDP 3 rejects /gfx:off. The v2 flag is kept for the xfreerdp binary.
+	_nsc_flags() {
+		local cmd_str="$1"
+		local major=""
+		case "$cmd_str" in
+			xfreerdp3|flatpak*)
+				major=3
+				;;
+			xfreerdp)
+				major=$(xfreerdp --version 2>/dev/null | head -n 1 | grep -o -m 1 '\b[0-9]\S*' | head -n 1 | cut -d'.' -f1 || true)
+				;;
+		esac
+		if [[ "$major" == "3" ]]; then
+			printf '%s\n' "/tune:FreeRDP_SupportGraphicsPipeline:false" "/nsc"
+		else
+			printf '%s\n' "/gfx:off" "/nsc"
+		fi
 	}
 
 	# Helper to run full test sequence
@@ -1341,35 +1382,42 @@ function check_available() {
 		done
 
 		# 6) /nsc variant
+		local nsc_flags=()
 		for c in "${candidates[@]}"; do
-			if _run_attempt "$c" "/gfx:off" "/nsc"; then
+			mapfile -t nsc_flags < <(_nsc_flags "$c")
+			if _run_attempt "$c" "${nsc_flags[@]}"; then
 				FREERDP_COMMAND="$c"
 				FREERDP_NSC=true
+				FREERDP_NSC_FLAGS="${nsc_flags[*]}"
 				update_config_file
 				return 0
 			fi
 		done
 
-		# 7) All together (xwayland, /sec:rdp, /network:lan, /gfx:off /nsc)
+		# 7) All together (xwayland, /sec:rdp, /network:lan, NSCodec)
 		if [ "$on_wayland" = true ]; then
 			for c in "${candidates[@]}"; do
-				if _run_attempt "$c" "XWAYLAND" "/sec:rdp" "/network:lan" "/gfx:off" "/nsc"; then
+				mapfile -t nsc_flags < <(_nsc_flags "$c")
+				if _run_attempt "$c" "XWAYLAND" "/sec:rdp" "/network:lan" "${nsc_flags[@]}"; then
 					FREERDP_COMMAND="$c"
 					FREERDP_XWAYLAND=true
 					FREERDP_SEC_RDP=true
 					FREERDP_NETWORK_LAN=true
 					FREERDP_NSC=true
+					FREERDP_NSC_FLAGS="${nsc_flags[*]}"
 					update_config_file
 					return 0
 				fi
 			done
 		else
 			for c in "${candidates[@]}"; do
-				if _run_attempt "$c" "/sec:rdp" "/network:lan" "/gfx:off" "/nsc"; then
+				mapfile -t nsc_flags < <(_nsc_flags "$c")
+				if _run_attempt "$c" "/sec:rdp" "/network:lan" "${nsc_flags[@]}"; then
 					FREERDP_COMMAND="$c"
 					FREERDP_SEC_RDP=true
 					FREERDP_NETWORK_LAN=true
 					FREERDP_NSC=true
+					FREERDP_NSC_FLAGS="${nsc_flags[*]}"
 					update_config_file
 					return 0
 				fi
@@ -1386,9 +1434,17 @@ function check_available() {
 	fi
 
 	# Run initial test sequence
+	RDP_REACHED_SERVER=false
 	if _run_test_sequence; then
 		update_config_file
 		return 0
+	fi
+
+	# Display and command-line failures happen before any RDP traffic.
+	# Rebooting Windows cannot fix them.
+	if [[ "$RDP_REACHED_SERVER" != true ]]; then
+		print_error "FreeRDP failed on this computer before it contacted Windows. The virtual machine was not rebooted."
+		return 1
 	fi
 
 	# 8) Reboot container and retry

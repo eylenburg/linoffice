@@ -33,7 +33,13 @@ services:
       PASSWORD: "MyWindowsPassword" # Leave as is, it is hardcoded in LinOffice
       HOME: "${HOME}" # Set path to Linux user home folder.
       ARGUMENTS: "-cpu host,arch_capabilities=off" # needed for Win 11
-      NETWORK: "nat"
+      # dockur turns the guest NIC off when NETWORK starts with N or n, so
+      # "nat" boots Windows with no network device. "Y" is its NAT mode.
+      NETWORK: "Y"
+    # dockur enables forwarding from inside the container. Rootless Podman
+    # rejects that write, so set it when the container is created.
+    sysctls:
+      net.ipv4.ip_forward: "1"
     ports:
       - 127.0.0.1:8006:8006 # Map '8006' on Linux host to '8006' on Windows VM --> For VNC Web Interface @ http://127.0.0.1:8006
       - 127.0.0.1:3388:3389/tcp # Map '3388' on Linux host to '3389' on Windows VM --> For Remote Desktop Protocol (RDP). 3388 is chosen to avoid conflict with the standard RDP and WinApps port 3389, in case there are two VMs running.
@@ -52,6 +58,21 @@ services:
     devices:
       - /dev/kvm # Enable KVM.
       - /dev/net/tun # Enable tuntap
+    # Fedora leaves container_use_devices off, so the container can see
+    # /dev/net/tun but cannot open it. Dockur then skips NAT and the guest
+    # has no normal network. label=disable is a no-op where SELinux is off.
+    security_opt:
+      - label=disable
+    # dockur forces iptables-legacy. Fedora's kernel has nft NAT and does not
+    # load ip_tables, so that call fails and dockur drops the guest to slirp.
+    # Point those commands at iptables-nft before the image entry script runs.
+    entrypoint:
+      - /usr/bin/tini
+      - -s
+      - /bin/sh
+      - --
+      - -c
+      - sed -i -e 's#/usr/sbin/iptables-legacy#/usr/sbin/iptables-nft#g' -e 's#/usr/sbin/ip6tables-legacy#/usr/sbin/ip6tables-nft#g' /run/network.sh && exec /run/entry.sh
     # The below lines are for using rootless podman containers. Make sure to add your user to the 'kvm' group or another that can access /dev/kvm. to make /dev/kvm work with podman. needs "crun" installed, "runc" will not work! 
     group_add:      
      - keep-groups 
