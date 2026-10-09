@@ -112,6 +112,9 @@ modules:
         set -eu
         install -d /app/bin \
           /app/share/applications \
+          /app/share/icons/hicolor/128x128/apps \
+          /app/share/icons/hicolor/256x256/apps \
+          /app/share/icons/hicolor/512x512/apps \
           /app/share/icons/hicolor/scalable/apps \
           /app/share/metainfo \
           /app/share/licenses/linoffice
@@ -166,8 +169,10 @@ modules:
           install -m 0644 "apps/${app}/icon.svg" \
             "/app/share/icons/hicolor/scalable/apps/${app_id}.${app}.svg"
         done
-        install -m 0644 .flatpak/linoffice.svg \
-          "/app/share/icons/hicolor/scalable/apps/${app_id}.svg"
+        for size in 128 256 512; do
+          install -m 0644 ".flatpak/icons/${size}.png" \
+            "/app/share/icons/hicolor/${size}x${size}/apps/${app_id}.png"
+        done
         install -m 0644 .flatpak/appdata.xml \
           "/app/share/metainfo/${app_id}.metainfo.xml"
     sources:
