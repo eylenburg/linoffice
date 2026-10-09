@@ -50,6 +50,9 @@ modules:
 
   - name: freerdp
     buildsystem: cmake-ninja
+    # FreeRDP refuses an in-source build. cmake-ninja does not enable a
+    # separate build directory unless this is set.
+    builddir: true
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
       - -DCMAKE_INSTALL_LIBDIR=lib
