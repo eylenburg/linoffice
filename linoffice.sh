@@ -106,7 +106,11 @@ waThrowExit() {
         ;;
     "$EC_MISSING_FREERDP")
         dprint "ERROR: FREERDP VERSION 3 IS NOT INSTALLED. EXITING."
-        echo -e "FreeRDP version 3 is not installed."
+        if [[ -n "${FLATPAK_ID:-}" ]]; then
+            echo -e "FreeRDP is missing from this Flatpak.\nReinstall LinOffice. You do not need a separate FreeRDP application."
+        else
+            echo -e "FreeRDP version 3 is not installed."
+        fi
         ;;
     "$EC_FAIL_START")
         dprint "ERROR: WINDOWS FAILED TO START. EXITING."
@@ -1440,21 +1444,30 @@ waLastRun
 waLoadConfig
 waGetFreeRDPCommand
 
-# Check for virtual environment
-echo "Checking for virtual environment..."
-use_venv || echo "Using system Python"
-
-# Ensure COMPOSE_COMMAND is set to a working value
-# First try the system podman-compose if it exists and is executable
-if [[ -x "/usr/bin/podman-compose" ]]; then
-    COMPOSE_COMMAND="/usr/bin/podman-compose"
-    echo "Using system podman-compose from /usr/bin/"
-elif command -v podman-compose &>/dev/null; then
-    COMPOSE_COMMAND="podman-compose"
-    echo "Using podman-compose from PATH"
+# Ensure COMPOSE_COMMAND is set to a working value.
+# Inside Flatpak, podman-compose is bundled. Elsewhere, prefer a system install.
+if [[ -n "${FLATPAK_ID:-}" ]]; then
+    if command -v podman-compose &>/dev/null; then
+        COMPOSE_COMMAND="podman-compose"
+    elif python3 -c "import podman_compose" >/dev/null 2>&1; then
+        COMPOSE_COMMAND="python3 -m podman_compose"
+    else
+        echo "ERROR: This Flatpak is missing podman-compose. Reinstall LinOffice."
+        exit 1
+    fi
 else
-    echo "ERROR: No working podman-compose found"
-    exit 1
+    echo "Checking for virtual environment..."
+    use_venv || echo "Using system Python"
+    if [[ -x "/usr/bin/podman-compose" ]]; then
+        COMPOSE_COMMAND="/usr/bin/podman-compose"
+        echo "Using system podman-compose from /usr/bin/"
+    elif command -v podman-compose &>/dev/null; then
+        COMPOSE_COMMAND="podman-compose"
+        echo "Using podman-compose from PATH"
+    else
+        echo "ERROR: No working podman-compose found"
+        exit 1
+    fi
 fi
 
 # refresh-oem must not go through waCheckContainerRunning: that function creates

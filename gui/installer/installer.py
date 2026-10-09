@@ -101,6 +101,7 @@ class Wizard(QWidget):
         # For subprocess tracking
         self.process = None
         self.current_step = 0
+        QTimer.singleShot(0, self.prepare_flatpak_welcome)
 
     def load_ui(self, path):
         loader = QUiLoader()
@@ -109,6 +110,77 @@ class Wizard(QWidget):
         widget = loader.load(file, self)
         file.close()
         return widget
+
+    def prepare_flatpak_welcome(self):
+        if not os.environ.get("FLATPAK_ID"):
+            return
+        label = self.welcome_page.findChild(QLabel, "welcomeLabel")
+        if label is not None:
+            label.setText(
+                "Welcome to LinOffice!\n"
+                "LinOffice is a Microsoft Office launcher for Linux.\n"
+                "\n"
+                "Requirements:\n"
+                "1. Fast Internet connection (as you will need to download several GB from Microsoft)\n"
+                "2. Modern hardware (at least 8 GB RAM, 64 GB free storage, >4 CPU cores, virtualization support)\n"
+                "3. Podman is installed on the host. FreeRDP and podman-compose are included in this Flatpak.\n"
+                "\n"
+                "Click on Next to install Microsoft Office.\n"
+            )
+        podman_ok, detail = self._host_podman_status()
+        if podman_ok:
+            QMessageBox.information(
+                self,
+                "Podman",
+                "This Flatpak needs Podman on the host computer. "
+                "FreeRDP and podman-compose are already included.\n\n"
+                "Podman is installed (%s)." % detail,
+            )
+            return
+        QMessageBox.information(
+            self,
+            "Podman is required",
+            "This Flatpak needs Podman on the host computer. "
+            "FreeRDP and podman-compose are already included.\n\n"
+            "%s\n\n"
+            "Ubuntu/Debian: sudo apt update && sudo apt install podman\n"
+            "Fedora/RHEL: sudo dnf install podman\n"
+            "openSUSE: sudo zypper install podman\n"
+            "Arch Linux: sudo pacman -S podman\n\n"
+            "More options: https://podman.io/getting-started/installation" % detail,
+        )
+
+    def _host_podman_status(self):
+        try:
+            version = subprocess.run(
+                ["podman", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return False, "Podman could not be started (%s)." % exc
+        if version.returncode != 0:
+            message = (version.stderr or version.stdout or "").strip()
+            if not message:
+                message = "Podman was not found on the host."
+            return False, message
+        version_line = (version.stdout or "").strip().splitlines()
+        version_text = version_line[0] if version_line else "podman"
+        try:
+            info = subprocess.run(
+                ["podman", "info"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return False, "%s was found, but 'podman info' did not finish (%s)." % (version_text, exc)
+        if info.returncode != 0:
+            message = (info.stderr or info.stdout or "").strip().splitlines()
+            extra = message[-1] if message else "podman info failed."
+            return False, "%s was found, but it is not ready: %s" % (version_text, extra)
+        return True, version_text
 
     def next_page(self):
         index = self.stack.currentIndex()
@@ -197,9 +269,9 @@ class Wizard(QWidget):
                 self.progress_bar.setValue(int(percentage))
 
             # Handle Windows download percentage
-            download_match = re.search(r'Downloading Windows (10|11): (\d+)%', clean_line)
+            download_match = re.search(r'Downloading Windows: (\d+)%', clean_line)
             if download_match:
-                win_percent = int(download_match.group(2))
+                win_percent = int(download_match.group(1))
                 # Map to range 37–50%
                 mapped_percent = 37 + (win_percent / 100) * (50 - 37)
                 self.progress_bar.setValue(int(mapped_percent))
@@ -388,9 +460,28 @@ After you've signed out, click <b>Try Again</b>.
                 self.process.kill()
 
         # Ask about removing the container
+        if os.environ.get("FLATPAK_ID"):
+            remove_text = (
+                "Do you want to delete the LinOffice container, the Windows virtual machine, "
+                "and the setup files this Flatpak created (compose.yaml, configuration, and setup progress)? "
+                "The next setup will start from scratch. The Flatpak itself stays installed. "
+                "This cannot be undone.\n\n"
+                "If this is your first setup attempt, choose Yes. "
+                "If Windows is already installed and you only wanted to stop this run, choose No."
+            )
+        else:
+            remove_text = (
+                "Do you want to delete the LinOffice container, the Windows virtual machine, "
+                "and the generated setup files (compose.yaml, configuration, and setup progress)? "
+                "The next setup will start from scratch. The LinOffice program stays installed. "
+                "This cannot be undone.\n\n"
+                "If this is your first setup attempt, choose Yes. "
+                "If you already have a working Windows install and are running setup again, choose No "
+                "unless you want that Windows install deleted."
+            )
         msg_box = QMessageBox()
         msg_box.setWindowTitle("Remove Container?")
-        msg_box.setText("Do you want to remove the 'LinOffice' podman container and all its data? This action cannot be undone.\n\nIf you are running this installer for the first time, you can select 'Yes'. If you have previously set up LinOffice and are running this installer again, you should select 'No' unless you explicitly want your Windows container including all its data to be deleted.")
+        msg_box.setText(remove_text)
         msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         msg_box.setDefaultButton(QMessageBox.No)
         msg_box.setIcon(QMessageBox.Warning)

@@ -195,7 +195,12 @@ validate_podman_compose() {
   return 0
 }
 
-use_venv
+if [[ -n "${FLATPAK_ID:-}" ]]; then
+  USE_VENV=0
+  print_info "This is the LinOffice Flatpak. FreeRDP and podman-compose are included. Podman must be installed on the host."
+else
+  use_venv
+fi
 
 # Function to display usage information
 print_usage() {
@@ -205,7 +210,7 @@ print_usage() {
     print_info "  --desktop    Only recreate the desktop files (.desktop launchers)"
     print_info "  --firstrun   Force RDP and Office installation checks"
     print_info "  --installoffice   Only run the Office installation script script (in case the Windows installation has finished but Office is not installed)"
-    print_info "  --healthcheck   Check that the system requirements are met and dependencies are installed and the container is healthy"
+    print_info "  --healthcheck   Check that Podman is available, required programs are present, and the container is healthy"
     print_info "  --refresh-oem   Copy OEM scripts into an existing Windows VM (does not reinstall Windows)"
     exit 1
 }
@@ -337,9 +342,13 @@ function check_requirements() {
     REQUIRED_RAM=7 # 8 GB shows up as 7.6 GiB so best to just set the threshold to 7 in this script
     AVAILABLE_RAM="$(LC_ALL=C free -b | awk '/^Mem:/{print int($2/1024/1024/1024)}')"
     if [ "$AVAILABLE_RAM" -lt "$REQUIRED_RAM" ]; then
+        local ram_hint="The Windows VM needs 4 GB of RAM. If you still want to continue with the installation, for example if you are using zswap, you can change the minimum RAM required by editing line $ram_line in $SCRIPT_DIR/setup.sh and then run the setup again."
+        if [[ -n "${FLATPAK_ID:-}" ]]; then
+            ram_hint="The Windows VM needs 4 GB of RAM. This Flatpak cannot be edited to lower that limit. Free some memory on the host and run setup again."
+        fi
         exit_with_error "Insufficient RAM. Required: ${REQUIRED_RAM}GB, Available: ${AVAILABLE_RAM}GB. \
     Please upgrade your system memory to at least ${REQUIRED_RAM}GB.
-    The Windows VM needs 4 GB of RAM. If you still want to continue with the installation, for example if you are using zswap, you can change the minimum RAM required by editing line $ram_line in $SCRIPT_DIR/setup.sh and then run the setup again."
+    $ram_hint"
     fi
     print_success "Sufficient RAM detected: ${AVAILABLE_RAM}GB"
 
@@ -411,6 +420,19 @@ function check_requirements() {
     print_info "Checking if podman is installed"
 
     if ! command -v podman &> /dev/null; then
+        if [[ -n "${FLATPAK_ID:-}" ]]; then
+            exit_with_error "Podman is not installed on the host.
+
+    This Flatpak includes FreeRDP and podman-compose. The only program you need to install yourself is Podman.
+
+    HOW TO FIX:
+    Ubuntu/Debian: sudo apt update && sudo apt install podman
+    Fedora/RHEL: sudo dnf install podman
+    openSUSE: sudo zypper install podman
+    Arch Linux: sudo pacman -S podman
+
+    Or visit: https://podman.io/getting-started/installation"
+        fi
         exit_with_error "podman is not installed.
         
     HOW TO FIX:
@@ -424,15 +446,36 @@ function check_requirements() {
     fi
     
     if ! podman info >/dev/null 2>&1; then
+        if [[ -n "${FLATPAK_ID:-}" ]]; then
+            exit_with_error "Podman is not available on the host, or it is not set up for this user.
+
+    This Flatpak includes FreeRDP and podman-compose. Install Podman on the host, then run 'podman info' there to confirm it works.
+
+    HOW TO FIX:
+    Ubuntu/Debian: sudo apt update && sudo apt install podman
+    Fedora/RHEL: sudo dnf install podman
+    openSUSE: sudo zypper install podman
+    Arch Linux: sudo pacman -S podman
+
+    Or visit: https://podman.io/getting-started/installation"
+        fi
         exit_with_error "Podman is not configured correctly or you lack sufficient permissions. Run 'podman info' to diagnose the issue."
     fi
 
     PODMAN_VERSION=$(podman --version)
-    print_success "podman is installed: $PODMAN_VERSION"
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        print_success "Podman on the host: $PODMAN_VERSION"
+    else
+        print_success "podman is installed: $PODMAN_VERSION"
+    fi
 
     # Check if podman-compose is installed
-    print_info "Checking if podman-compose is installed"
-    print_info "Python environment: $(if [[ "$USE_VENV" -eq 1 ]]; then echo "Virtual environment at $VENV_PATH"; else echo "System Python"; fi)"
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        print_info "Checking the podman-compose included in this Flatpak"
+    else
+        print_info "Checking if podman-compose is installed"
+        print_info "Python environment: $(if [[ "$USE_VENV" -eq 1 ]]; then echo "Virtual environment at $VENV_PATH"; else echo "System Python"; fi)"
+    fi
 
     # Determine which Python to use for dependency checks
     if [[ "$USE_VENV" -eq 1 ]]; then
@@ -443,7 +486,22 @@ function check_requirements() {
         PYTHON_ENV="system"
     fi
 
-    if [[ "$USE_VENV" -eq 0 ]]; then
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        if [[ -x /app/bin/podman-compose ]] && validate_podman_compose /app/bin/podman-compose; then
+            COMPOSE_COMMAND=/app/bin/podman-compose
+        elif command -v podman-compose >/dev/null 2>&1 && validate_podman_compose "$(command -v podman-compose)"; then
+            COMPOSE_COMMAND="$(command -v podman-compose)"
+        elif python3 -c "import podman_compose" >/dev/null 2>&1; then
+            COMPOSE_COMMAND="python3 -m podman_compose"
+        else
+            exit_with_error "This Flatpak does not include a working podman-compose.
+
+        Reinstall LinOffice. You do not need to install podman-compose on the host."
+        fi
+        if ! python3 -c "import dotenv" >/dev/null 2>&1; then
+            exit_with_error "This Flatpak does not include python-dotenv. Reinstall LinOffice."
+        fi
+    elif [[ "$USE_VENV" -eq 0 ]]; then
         # Use system podman-compose, and avoid stale user-level wrappers
         if [[ -x "/usr/bin/podman-compose" ]] && validate_podman_compose "/usr/bin/podman-compose"; then
             COMPOSE_COMMAND="/usr/bin/podman-compose"
@@ -558,9 +616,16 @@ function check_requirements() {
     fi
 
     if ! COMPOSE_VERSION=$($COMPOSE_COMMAND --version 2>/dev/null); then
+        if [[ -n "${FLATPAK_ID:-}" ]]; then
+            exit_with_error "The podman-compose program included in this Flatpak did not run. Reinstall LinOffice."
+        fi
         exit_with_error "podman-compose command '$COMPOSE_COMMAND' failed to run. Please reinstall podman-compose or remove stale copies in ~/.local/bin."
     fi
-    print_success "podman-compose is installed: $COMPOSE_VERSION"
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        print_success "podman-compose from this Flatpak: $COMPOSE_VERSION"
+    else
+        print_success "podman-compose is installed: $COMPOSE_VERSION"
+    fi
 
     # Check if FreeRDP is available
     print_info "Checking if FreeRDP is available"
@@ -606,6 +671,11 @@ function check_requirements() {
             exit_with_error "FreeRDP version 3 or greater is required. Detected version: $FREERDP_MAJOR_VERSION"
         fi
     else
+        if [[ -n "${FLATPAK_ID:-}" ]]; then
+            exit_with_error "FreeRDP is missing from this Flatpak.
+
+    Reinstall LinOffice. You do not need the separate com.freerdp.FreeRDP application."
+        fi
         exit_with_error "FreeRDP is not installed
         
     HOW TO FIX:
@@ -618,6 +688,9 @@ function check_requirements() {
     fi
 
     if ! $FREERDP_COMMAND --version >/dev/null 2>&1; then
+        if [[ -n "${FLATPAK_ID:-}" ]]; then
+            exit_with_error "The FreeRDP program included in this Flatpak did not run. Reinstall LinOffice."
+        fi
         exit_with_error "FreeRDP command '$FREERDP_COMMAND' is not functional. Please ensure FreeRDP is correctly installed and configured."
     fi
 
@@ -630,14 +703,29 @@ function check_requirements() {
     else
         module_list=$(lsmod 2>/dev/null || true)
     fi
-    if ! echo "$module_list" | grep -q ip_tables || ! echo "$module_list" | grep -q iptable_nat; then
+    legacy_iptables=false
+    nftables_ok=false
+    if echo "$module_list" | grep -q ip_tables && echo "$module_list" | grep -q iptable_nat; then
+        legacy_iptables=true
+    fi
+    if echo "$module_list" | grep -q nf_tables; then
+        nftables_ok=true
+    fi
+    if [[ "$legacy_iptables" == true || "$nftables_ok" == true ]]; then
+        if [[ "$nftables_ok" == true && "$legacy_iptables" != true ]]; then
+            print_success "Netfilter (nftables) is available. The legacy ip_tables modules are not required."
+        else
+            print_success "iptables modules are loaded"
+        fi
+    elif [[ -n "${FLATPAK_ID:-}" ]]; then
+        print_info "WARNING: The host kernel has neither nftables nor the legacy iptables modules loaded. The Windows VM network may not work until those are available."
+    else
         print_info "WARNING: iptables kernel modules not loaded. Sharing the /home folder with the Windows VM will not work unless connected via RDP. HOW TO FIX:
         
     Run the following command:
     echo -e 'ip_tables\niptable_nat' | sudo tee /etc/modules-load.d/iptables.conf
     Then reboot your system."
     fi
-    print_success "iptables modules are loaded"
 
     # Check if most important LinOffice files exist
     print_info "Checking for essential setup files"
@@ -676,7 +764,11 @@ function check_requirements() {
     print_success "Files found."
 
     # Make scripts executable
-    print_info "Making scripts executable"
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        print_info "Checking script permissions"
+    else
+        print_info "Making scripts executable"
+    fi
 
     if [ ! -f "$LINOFFICE" ]; then
         exit_with_error "File not found: $LINOFFICE
@@ -697,11 +789,12 @@ function check_requirements() {
         chmod +x "$LINOFFICE" || exit_with_error "Failed to make $LINOFFICE executable"
         chmod +x "$LOCALE_REG_SCRIPT" || exit_with_error "Failed to make $LOCALE_REG_SCRIPT executable"
         chmod +x "$LOCALE_LANG_SCRIPT" || exit_with_error "Failed to make $LOCALE_LANG_SCRIPT executable"
+        print_success "Made scripts executable"
+    elif [[ -n "${FLATPAK_ID:-}" ]]; then
+        print_info "Scripts in this Flatpak are already executable."
     else
         print_info "PREFIX is not writable; leaving script permissions unchanged."
     fi
-
-    print_success "Made scripts executable"
 
     # Check for various potential Podman problems
     # Check subUID/subGID mappings as some users had problems here
@@ -944,7 +1037,6 @@ function create_container() {
     local timeout_counter=0
     local max_timeout=3600  # 60 minutes maximum wait time between podman-compose log output
     local last_activity_time=$(date +%s)
-    local windows_version=""
 
     # Start podman-compose in the background with unbuffered output and strip ANSI codes
     print_info "Starting podman-compose in detached mode..."
@@ -998,7 +1090,6 @@ function create_container() {
                 print_step "4" "Starting Windows download (about 5 GB). This will take a while depending on your Internet speed."
                 download_started=true
                 last_activity_time=$current_time
-                windows_version=$(grep "Downloading Windows" "$LOGFILE" | tail -1 | grep -oE '10|11')
             fi
 
             # Output download progress at each percent
@@ -1009,11 +1100,7 @@ function create_container() {
                 pct=$(echo "$progress_line" | grep -oE "[ ]{1,3}[0-9]{1,3}%" | tail -1 | tr -d ' %')
                 speed=$(echo "$progress_line" | grep -oE "[0-9.]+[MK]" | tail -1)
                 if [[ "$pct" =~ ^[0-9]+$ ]] && [ "$pct" -gt "$last_percent" ] && [ "$pct" -le 100 ]; then
-                    if [ -n "$windows_version" ]; then
-                        print_progress "Downloading Windows ${windows_version}: ${pct}% | Speed: ${speed}B/s"
-                    else
-                        print_progress "Downloading Windows: ${pct}% | Speed: ${speed}B/s"
-                    fi
+                    print_progress "Downloading Windows: ${pct}% | Speed: ${speed}B/s"
                     last_percent=$pct
                 fi
             fi
@@ -1643,7 +1730,7 @@ function desktop_files() {
     # the sandbox applications directory are not visible on the host, and an
     # Exec=/app line written into the real home directory would not run there.
     if [[ -n "${FLATPAK_ID:-}" ]]; then
-        print_info "Flatpak already exports the LinOffice launchers. Not writing .desktop files into the home directory."
+        print_success "This Flatpak already includes the LinOffice and Office launchers. Nothing was written to the home directory."
         return 0
     fi
 
@@ -1832,10 +1919,16 @@ fi
 
 # If --desktop flag is set, only run desktop_files
 if [ "$DESKTOP_ONLY" = true ]; then
-    print_info "Recreating desktop files..."
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        print_info "Checking application launchers..."
+    else
+        print_info "Recreating desktop files..."
+    fi
     if desktop_files; then
         mark_progress "$PROGRESS_DESKTOP"
-        print_success "App launchers (.desktop files) created successfully!"
+        if [[ -z "${FLATPAK_ID:-}" ]]; then
+            print_success "App launchers (.desktop files) created successfully!"
+        fi
     else
         exit_with_error "Failed to create app launchers (.desktop files)"
     fi
