@@ -1,25 +1,51 @@
 #!/bin/bash
-SCRIPT_DIR="$HOME/.local/bin/linoffice"
 SCRIPT_NAME="$(basename "$0")"
-COMPOSE_PATH="$(realpath "${SCRIPT_DIR}/config/compose.yaml")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LEGACY_PREFIX="$HOME/.local/bin/linoffice"
+if [[ -f "$SCRIPT_DIR/lib/paths.sh" ]]; then
+  # shellcheck source=lib/paths.sh
+  source "$SCRIPT_DIR/lib/paths.sh" || exit 1
+else
+  echo "Warning: lib/paths.sh not found next to uninstall.sh. Using legacy path discovery."
+  LINOFFICE_PREFIX="$SCRIPT_DIR"
+  LEGACY_DATA_DIR="$HOME/.local/share/linoffice"
+  LINOFFICE_DATA_DIR="$LEGACY_DATA_DIR"
+  if [[ -f "$LEGACY_DATA_DIR/paths.env" ]]; then
+    # shellcheck disable=SC1090
+    source "$LEGACY_DATA_DIR/paths.env"
+  fi
+  LINOFFICE_CONFIG_DIR="${LINOFFICE_CONFIG_DIR:-$LINOFFICE_PREFIX/config}"
+  LINOFFICE_COMPOSE_FILE="${LINOFFICE_CONFIG_DIR}/compose.yaml"
+  LINOFFICE_APPLICATIONS_DIR="${LINOFFICE_APPLICATIONS_DIR:-$HOME/.local/share/applications}"
+  LINOFFICE_VENV_DIR="$LINOFFICE_PREFIX/venv"
+  LINOFFICE_LEGACY_VENV_DIR="$LEGACY_PREFIX/venv"
+  linoffice_is_system_prefix() { return 1; }
+  linoffice_compose() {
+    (cd "$LINOFFICE_CONFIG_DIR" && $COMPOSE_COMMAND -p linoffice --file "$LINOFFICE_COMPOSE_FILE" "$@")
+  }
+fi
+
+# If resolution could not see a compose file, paths.env may still name the config directory.
+if [[ ! -f "$LINOFFICE_COMPOSE_FILE" ]]; then
+  for _envfile in "$LINOFFICE_DATA_DIR/paths.env" "${LEGACY_DATA_DIR:-}/paths.env"; do
+    [[ -f "$_envfile" ]] || continue
+    _cached_config="$(bash -c 'source "$1"; printf "%s" "$LINOFFICE_CONFIG_DIR"' bash "$_envfile" 2>/dev/null || true)"
+    if [[ -n "$_cached_config" && -f "$_cached_config/compose.yaml" ]]; then
+      LINOFFICE_CONFIG_DIR="$_cached_config"
+      LINOFFICE_COMPOSE_FILE="$_cached_config/compose.yaml"
+      break
+    fi
+  done
+  unset _envfile _cached_config
+fi
+
+COMPOSE_PATH="$LINOFFICE_COMPOSE_FILE"
+APPDATA_PATH="$LINOFFICE_DATA_DIR"
+USER_APPLICATIONS_DIR="$LINOFFICE_APPLICATIONS_DIR"
 CONTAINER_NAME="LinOffice"
 echo "Executing uninstall script in $SCRIPT_DIR"
-
-# Check if setup.sh exists and extract USER_APPLICATIONS_DIR and APPDATA_PATH
-if [[ ! -f "$SCRIPT_DIR/setup.sh" ]]; then
-  echo "Warning: setup.sh not found in the current directory."
-else
-  eval $(grep -E '^\s*USER_APPLICATIONS_DIR=' $SCRIPT_DIR/setup.sh)
-  eval $(grep -E '^\s*APPDATA_PATH=' $SCRIPT_DIR/setup.sh)
-
-  if [[ -z "$USER_APPLICATIONS_DIR" ]]; then
-    echo "Warning: USER_APPLICATIONS_DIR not found in setup.sh."
-  fi
-
-  if [[ -z "$APPDATA_PATH" ]]; then
-    echo "Warning: APPDATA_PATH not found in setup.sh."
-  fi
-fi
+echo "Config: $LINOFFICE_CONFIG_DIR"
+echo "Data: $LINOFFICE_DATA_DIR"
 
 
 # Check if sudo is available
@@ -85,18 +111,39 @@ print_system_pkg_manual_commands() {
   echo "Tip: run a dry-run first where supported (for apt: sudo apt-get -s remove ...)."
 }
 
-# Find .desktop files containing linoffice.sh in Exec= line
-if [[ -n "$USER_APPLICATIONS_DIR" ]]; then
-  DESKTOP_FILES=$(find "$USER_APPLICATIONS_DIR" -type f -name "*.desktop" -exec grep -l "Exec=.*linoffice.sh" {} \;)
-  # Also include the GUI launcher if present
-  if [[ -f "$USER_APPLICATIONS_DIR/linoffice.desktop" ]]; then
-    if [[ -n "$DESKTOP_FILES" ]]; then
-      DESKTOP_FILES="$DESKTOP_FILES
-$USER_APPLICATIONS_DIR/linoffice.desktop"
-    else
-      DESKTOP_FILES="$USER_APPLICATIONS_DIR/linoffice.desktop"
+# Find .desktop files containing linoffice.sh in Exec= line.
+# Scan the resolved applications directory and the legacy ~/.local/share/applications path.
+DESKTOP_SCAN_DIRS=()
+for _desktop_dir in "$USER_APPLICATIONS_DIR" "${XDG_DATA_HOME:-$HOME/.local/share}/applications" "$HOME/.local/share/applications"; do
+  [[ -d "$_desktop_dir" ]] || continue
+  _desktop_real="$(cd "$_desktop_dir" && pwd -P)"
+  _already=0
+  for _seen in "${DESKTOP_SCAN_DIRS[@]}"; do
+    if [[ "$_seen" == "$_desktop_real" ]]; then
+      _already=1
+      break
     fi
+  done
+  if [[ "$_already" -eq 0 ]]; then
+    DESKTOP_SCAN_DIRS+=("$_desktop_real")
   fi
+done
+unset _desktop_dir _desktop_real _already _seen
+
+if [[ ${#DESKTOP_SCAN_DIRS[@]} -gt 0 ]]; then
+  DESKTOP_FILES=""
+  for _desktop_dir in "${DESKTOP_SCAN_DIRS[@]}"; do
+    while IFS= read -r file; do
+      [[ -n "$file" ]] || continue
+      DESKTOP_FILES="${DESKTOP_FILES:+$DESKTOP_FILES
+}$file"
+    done < <(find "$_desktop_dir" -type f -name "*.desktop" -exec grep -l "Exec=.*linoffice.sh" {} \; 2>/dev/null)
+    if [[ -f "$_desktop_dir/linoffice.desktop" && "$DESKTOP_FILES" != *"$_desktop_dir/linoffice.desktop"* ]]; then
+      DESKTOP_FILES="${DESKTOP_FILES:+$DESKTOP_FILES
+}$_desktop_dir/linoffice.desktop"
+    fi
+  done
+  unset _desktop_dir
   if [[ -n "$DESKTOP_FILES" ]]; then
     echo "The following .desktop files will be deleted:"
     echo "$DESKTOP_FILES"
@@ -117,9 +164,9 @@ fi
 # This will attempt to remove venv, pip-installed packages, Flatpak apps, and
 # system packages installed by the quickstart script, with confirmations.
 
-# Resolve the installed_dependencies file path
+# Resolve the installed_dependencies file path (data dir, then legacy ~/.local/share/linoffice)
 INSTALLED_DEPS_FILE=""
-DEFAULT_APPDATA_PATH="$HOME/.local/share/linoffice"
+DEFAULT_APPDATA_PATH="$LEGACY_DATA_DIR"
 if [[ -n "$APPDATA_PATH" && -f "$APPDATA_PATH/installed_dependencies" ]]; then
   INSTALLED_DEPS_FILE="$APPDATA_PATH/installed_dependencies"
 elif [[ -f "$DEFAULT_APPDATA_PATH/installed_dependencies" ]]; then
@@ -154,20 +201,6 @@ if [[ -n "$INSTALLED_DEPS_FILE" ]]; then
         echo "Saved list of installed dependencies to: $OUTPUT_FILE"
       else
         echo "Skipping."
-      fi
-    fi
-  fi
-
-  # Clean up virtual environment if used
-  if [[ "$PIP_VENV" == "1" ]]; then
-    VENV_DIR="$HOME/.local/bin/linoffice/venv"
-    if [[ -d "$VENV_DIR" ]]; then
-      read -p "A Python virtual environment was used at $VENV_DIR. Delete it? (y/n): " confirm
-      if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
-        rm -rf "$VENV_DIR"
-        echo "Deleted virtual environment: $VENV_DIR"
-      else
-        echo "Virtual environment deletion skipped."
       fi
     fi
   fi
@@ -252,6 +285,34 @@ else
   echo "No installed_dependencies record found. Skipping dependency cleanup."
 fi
 
+# Offer venv removal even when installed_dependencies was never written.
+# PREFIX/venv is preferred; ~/.local/bin/linoffice/venv is the legacy fallback.
+VENV_CANDIDATES=()
+for _venv in "$LINOFFICE_VENV_DIR" "$LINOFFICE_LEGACY_VENV_DIR"; do
+  [[ -d "$_venv" ]] || continue
+  _venv_real="$(cd "$_venv" && pwd -P)"
+  _already=0
+  for _seen in "${VENV_CANDIDATES[@]}"; do
+    if [[ "$_seen" == "$_venv_real" ]]; then
+      _already=1
+      break
+    fi
+  done
+  if [[ "$_already" -eq 0 ]]; then
+    VENV_CANDIDATES+=("$_venv_real")
+  fi
+done
+unset _venv _venv_real _already _seen
+for VENV_DIR in "${VENV_CANDIDATES[@]}"; do
+  read -p "A Python virtual environment was found at $VENV_DIR. Delete it? (y/n): " confirm
+  if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+    rm -rf "$VENV_DIR"
+    echo "Deleted virtual environment: $VENV_DIR"
+  else
+    echo "Virtual environment deletion skipped."
+  fi
+done
+
 # Ask to delete the Windows container and its data
 read -p "Do you want to delete the Windows container and all its data as well? (y/n): " confirm
 if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
@@ -275,10 +336,10 @@ if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
     # If the container is paused, it must be un-paused first to shut down cleanly
     if [[ "$CONTAINER_STATUS" == "paused" ]]; then
         echo "Container is paused, unpausing to allow clean shutdown..."
-        if [[ -n "$COMPOSE_COMMAND" ]]; then
-          "$COMPOSE_COMMAND" --file "$COMPOSE_PATH" unpause &>/dev/null
+        if [[ -n "$COMPOSE_COMMAND" && -f "$COMPOSE_PATH" ]]; then
+          linoffice_compose unpause &>/dev/null
         else
-          echo "Skipping podman-compose unpause: no podman-compose available."
+          echo "Skipping podman-compose unpause: no podman-compose or compose file available."
         fi
         sleep 2 # Give it a moment to wake up before stopping
     fi
@@ -293,10 +354,10 @@ if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
 
     echo "Cleaning up all resources..."
     # Finally, run 'down' to ensure the stopped container is fully removed.
-    if [[ -n "$COMPOSE_COMMAND" ]]; then
-      "$COMPOSE_COMMAND" --file "$COMPOSE_PATH" down --remove-orphans &>/dev/null
+    if [[ -n "$COMPOSE_COMMAND" && -f "$COMPOSE_PATH" ]]; then
+      linoffice_compose down --remove-orphans &>/dev/null
     else
-      echo "Skipping podman-compose down: no podman-compose available."
+      echo "Skipping podman-compose down: no podman-compose or compose file available."
     fi
 
     # Finally, delete the container
@@ -330,28 +391,73 @@ else
   echo "Warning: Directory $APPDATA_PATH does not exist."
 fi
 
-# Find all files and folders in the same directory as uninstall.sh (excluding itself)
-
-FILES_TO_DELETE=$(find "$SCRIPT_DIR" -maxdepth 1 -not -name "$SCRIPT_NAME")
-if [[ -n "$FILES_TO_DELETE" ]]; then
-  echo "The following files and folders will be deleted recursively:"
-  echo "$FILES_TO_DELETE"
-  read -p "Do you want to proceed with deletion? (y/n): " confirm
+# Legacy data directory, when resolution picked a different DATA_DIR.
+if [[ -d "$LEGACY_DATA_DIR" && "$(realpath -m "$LEGACY_DATA_DIR")" != "$(realpath -m "$APPDATA_PATH")" ]]; then
+  read -p "Legacy app data also exists at $LEGACY_DATA_DIR. Delete it too? (y/n): " confirm
   if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
-    find "$SCRIPT_DIR" -maxdepth 1 -not -name "$SCRIPT_NAME" -exec rm -rf {} \;
-    if [[ -f "$SCRIPT_DIR/setup.sh" ]]; then
-      rm -f "$SCRIPT_DIR/setup.sh"
-    fi
-    echo "Files and folders deleted."
-    # Delete the uninstall.sh script itself
-    echo "Deleting the uninstall script itself."
-    rm -f "$0"
-    echo "Uninstall script deleted."
+    rm -r "$LEGACY_DATA_DIR"
+    echo "Deleted directory: $LEGACY_DATA_DIR"
   else
-    echo "Deletion of files and folders aborted."
+    echo "Deletion of $LEGACY_DATA_DIR aborted."
   fi
+fi
+
+# Generated config outside PREFIX (new XDG layout). Legacy $PREFIX/config is removed with PREFIX.
+if [[ -d "$LINOFFICE_CONFIG_DIR" ]]; then
+  _config_real="$(realpath -m "$LINOFFICE_CONFIG_DIR")"
+  _prefix_real="$(realpath -m "$LINOFFICE_PREFIX")"
+  case "$_config_real" in
+    "$_prefix_real"|"$_prefix_real"/*) ;;
+    *)
+      read -p "Do you want to delete the LinOffice config directory $_config_real? (y/n): " confirm
+      if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+        rm -r "$_config_real"
+        echo "Deleted directory: $_config_real"
+      else
+        echo "Deletion of $_config_real aborted."
+      fi
+      ;;
+  esac
+  unset _config_real _prefix_real
+fi
+
+# Find all files and folders in the same directory as uninstall.sh (excluding itself).
+# Skip this for a system prefix (/usr, /app, /nix/store): only user config, data, and desktop files are removed.
+if linoffice_is_system_prefix "$LINOFFICE_PREFIX"; then
+  echo "Install prefix $LINOFFICE_PREFIX looks like a system directory. Skipping deletion of the application files."
 else
-  echo "No files or folders to delete in $SCRIPT_DIR."
+  FILES_TO_DELETE=$(find "$SCRIPT_DIR" -maxdepth 1 -not -name "$SCRIPT_NAME")
+  if [[ -n "$FILES_TO_DELETE" ]]; then
+    echo "The following files and folders will be deleted recursively:"
+    echo "$FILES_TO_DELETE"
+    read -p "Do you want to proceed with deletion? (y/n): " confirm
+    if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+      find "$SCRIPT_DIR" -maxdepth 1 -not -name "$SCRIPT_NAME" -exec rm -rf {} \;
+      if [[ -f "$SCRIPT_DIR/setup.sh" ]]; then
+        rm -f "$SCRIPT_DIR/setup.sh"
+      fi
+      echo "Files and folders deleted."
+      # Delete the uninstall.sh script itself
+      echo "Deleting the uninstall script itself."
+      rm -f "$0"
+      echo "Uninstall script deleted."
+    else
+      echo "Deletion of files and folders aborted."
+    fi
+  else
+    echo "No files or folders to delete in $SCRIPT_DIR."
+  fi
+
+  # Quickstart used to live only at ~/.local/bin/linoffice. Offer that tree when this script is somewhere else.
+  if [[ -d "$LEGACY_PREFIX" && -f "$LEGACY_PREFIX/linoffice.sh" && "$(realpath -m "$LEGACY_PREFIX")" != "$(realpath -m "$SCRIPT_DIR")" ]]; then
+    read -p "A legacy install also exists at $LEGACY_PREFIX. Delete it? (y/n): " confirm
+    if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+      rm -rf "$LEGACY_PREFIX"
+      echo "Deleted directory: $LEGACY_PREFIX"
+    else
+      echo "Deletion of $LEGACY_PREFIX aborted."
+    fi
+  fi
 fi
 
 exit 0

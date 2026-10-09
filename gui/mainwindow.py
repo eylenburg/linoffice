@@ -10,25 +10,70 @@ import csv
 import threading
 import re
 
-LINOFFICE_SCRIPT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'linoffice.sh'))
-SETUP_SCRIPT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'setup.sh'))
-UNINSTALL_SCRIPT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'uninstall.sh'))
+_LIB_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'lib'))
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+import paths as linoffice_paths
 
-# Define the user's local registry override config path
-USER_REGISTRY_CONFIG = os.path.expanduser('~/.local/share/linoffice/registry_override.conf')
+LINOFFICE_SCRIPT = str(linoffice_paths.LINOFFICE_SCRIPT)
+SETUP_SCRIPT = str(linoffice_paths.SETUP_SCRIPT)
+UNINSTALL_SCRIPT = str(linoffice_paths.UNINSTALL_SCRIPT)
 
-# Define the languages CSV file path
-LANGUAGES_CSV = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'languages.csv'))
+# Writable registry override. An existing legacy copy is preferred over a blank file.
+USER_REGISTRY_CONFIG = str(linoffice_paths.DATA_DIR / 'registry_override.conf')
 
-# Define the internet state file path
-INTERNET_STATE_FILE = os.path.expanduser('~/.local/share/linoffice/internet')
+LANGUAGES_CSV = str(linoffice_paths.LANGUAGES_CSV)
+
+INTERNET_STATE_FILE = str(linoffice_paths.DATA_DIR / 'internet')
+
+LINOFFICE_CONF_FILE = str(linoffice_paths.CONF_FILE)
+
+def _version_in_updater_text(text):
+    match = re.search(
+        r'(?m)^CURRENT_VERSION\s*=\s*["\']([0-9A-Za-z._+-]+)["\']',
+        text,
+    )
+    if not match:
+        return None
+    return match.group(1)
+
+def _version_in_updater(path):
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return _version_in_updater_text(handle.read())
+    except OSError:
+        return None
+
+def _github_main_version():
+    import urllib.request
+    url = "https://raw.githubusercontent.com/eylenburg/linoffice/main/updater.py"
+    try:
+        request = urllib.request.Request(url, headers={"User-Agent": "LinOffice"})
+        with urllib.request.urlopen(request, timeout=15) as response:
+            text = response.read().decode("utf-8", errors="replace")
+    except Exception:
+        return None
+    return _version_in_updater_text(text)
+
+def _copy_legacy_data_file(name):
+    """If the data-dir file is missing, copy it from ~/.local/share/linoffice."""
+    primary = os.path.join(str(linoffice_paths.DATA_DIR), name)
+    legacy = os.path.join(str(linoffice_paths.LEGACY_DATA_DIR), name)
+    if os.path.exists(primary) or not os.path.isfile(legacy):
+        return
+    if os.path.realpath(primary) == os.path.realpath(legacy):
+        return
+    os.makedirs(os.path.dirname(primary), exist_ok=True)
+    import shutil
+    shutil.copy2(legacy, primary)
 
 def ensure_internet_state_file():
         """Ensure the internet state file exists with default 'on' value"""
         state_dir = os.path.dirname(INTERNET_STATE_FILE)
         if not os.path.exists(state_dir):
             os.makedirs(state_dir, exist_ok=True)
-        
+
+        _copy_legacy_data_file('internet')
         if not os.path.exists(INTERNET_STATE_FILE):
             # Create the file with default 'on' state
             with open(INTERNET_STATE_FILE, 'w') as f:
@@ -55,11 +100,12 @@ def save_internet_state(state_on):
         print(f"Error saving internet state: {e}")
 
 def ensure_registry_config_exists():
-    """Ensure the registry_override.conf file exists in user's local directory"""
+    """Ensure registry_override.conf exists. Prefer an existing legacy copy over a blank file."""
     config_dir = os.path.dirname(USER_REGISTRY_CONFIG)
     if not os.path.exists(config_dir):
         os.makedirs(config_dir, exist_ok=True)
-    
+
+    _copy_legacy_data_file('registry_override.conf')
     if not os.path.exists(USER_REGISTRY_CONFIG):
         # Create the file with default empty values
         with open(USER_REGISTRY_CONFIG, 'w') as f:
@@ -214,7 +260,7 @@ class SettingsWindow(QMainWindow):
         try:
             import re
             # Load linoffice.conf settings
-            linoffice_conf_path = os.path.join(os.path.dirname(LINOFFICE_SCRIPT), 'config', 'linoffice.conf')
+            linoffice_conf_path = LINOFFICE_CONF_FILE
             if os.path.exists(linoffice_conf_path):
                 with open(linoffice_conf_path, 'r') as f:
                     content = f.read()
@@ -308,7 +354,7 @@ class SettingsWindow(QMainWindow):
             # --- End network checkbox logic ---
             
             # Save linoffice.conf settings
-            linoffice_conf_path = os.path.join(os.path.dirname(LINOFFICE_SCRIPT), 'config', 'linoffice.conf')
+            linoffice_conf_path = LINOFFICE_CONF_FILE
             if os.path.exists(linoffice_conf_path):
                 with open(linoffice_conf_path, 'r') as f:
                     content = f.read()
@@ -372,6 +418,7 @@ class SettingsWindow(QMainWindow):
             
             with open(registry_conf_path, 'w') as f:
                 f.write(content)
+            linoffice_paths.legacy_fallback_copy('registry_override.conf')
             
             # Run linoffice.sh registry_override if registry settings were changed
             if registry_settings_changed:
@@ -493,6 +540,24 @@ class ToolsWindow(QMainWindow):
         webbrowser.open('http://127.0.0.1:8006')
 
     def run_self_updater(self):
+        if os.environ.get("FLATPAK_ID"):
+            current = _version_in_updater(os.path.join(str(linoffice_paths.PREFIX), "updater.py"))
+            latest = _github_main_version()
+            if not current:
+                current = "unknown"
+            if latest:
+                latest_line = "Version in the GitHub main branch: %s" % latest
+            else:
+                latest_line = "Version in the GitHub main branch: unavailable (could not reach GitHub)."
+            QMessageBox.information(
+                self,
+                "Update",
+                "This copy of LinOffice is a Flatpak, so it cannot update itself. "
+                "Update it with your software store or with flatpak update.<br><br>"
+                "Installed version: %s<br>%s" % (current, latest_line),
+            )
+            return
+
         original_dir = os.getcwd()
         parent_dir = os.path.abspath(os.path.join(original_dir, '..'))
         updater_script = os.path.join(parent_dir, 'updater.py')
@@ -728,13 +793,25 @@ class TroubleshootingWindow(QMainWindow):
         self.ui.pushButton_website.clicked.connect(self.open_website)
         self.ui.pushButton_uninstall.clicked.connect(self.run_uninstall)
         self.ui.pushButton_healthcheck.clicked.connect(self.run_healthcheck)
+        if os.environ.get("FLATPAK_ID"):
+            self.ui.pushButton_desktopfiles.setToolTip(
+                "This Flatpak already includes the Office and LinOffice launchers. "
+                "They are exported to the application menu."
+            )
+            self.ui.pushButton_healthcheck.setToolTip(
+                "Checks host Podman, the programs included in this Flatpak, and the Windows container."
+            )
+            self.ui.pushButton_uninstall.setToolTip(
+                "This Flatpak is removed with your software store or with flatpak uninstall. "
+                "That does not delete the Windows virtual machine."
+            )
         # Connect FreeRDP options
         self.ui.checkBox_multimon.toggled.connect(self._on_multimon_toggled)
         self.ui.checkBox_hidef.toggled.connect(self._on_hidef_toggled)
 
     def _conf_path(self):
         # Reuse same resolution as in SettingsWindow
-        return os.path.join(os.path.dirname(LINOFFICE_SCRIPT), 'config', 'linoffice.conf')
+        return LINOFFICE_CONF_FILE
 
     def _read_conf(self):
         path = self._conf_path()
@@ -820,6 +897,15 @@ class TroubleshootingWindow(QMainWindow):
         QMessageBox.information(self.ui, "Lock file cleanup", output_line.strip(), QMessageBox.Ok)
 
     def run_setup_desktop(self):
+        if os.environ.get("FLATPAK_ID"):
+            QMessageBox.information(
+                self,
+                "App launchers",
+                "This Flatpak already includes the LinOffice and Office launchers. "
+                "They appear in the application menu after the Flatpak is installed. "
+                "There are no .desktop files to recreate.",
+            )
+            return
         # Start the subprocess and capture the output
         process = subprocess.Popen(
             [SETUP_SCRIPT, '--desktop'],
@@ -841,7 +927,7 @@ class TroubleshootingWindow(QMainWindow):
         subprocess.Popen([LINOFFICE_SCRIPT, '--stopcontainer'])
 
     def open_logfile(self):
-        logfile = os.path.expanduser('~/.local/share/linoffice/linoffice.log')
+        logfile = str(linoffice_paths.read_data_path('linoffice.log'))
         # Try to open with xdg-open (Linux default)
         subprocess.Popen(['xdg-open', logfile])
 
@@ -850,6 +936,18 @@ class TroubleshootingWindow(QMainWindow):
         webbrowser.open('https://github.com/eylenburg/linoffice')
 
     def run_uninstall(self):
+        if os.environ.get("FLATPAK_ID"):
+            QMessageBox.information(
+                self,
+                "Uninstall",
+                "This copy of LinOffice is a Flatpak. Remove it with your software store, or run:\n\n"
+                "flatpak uninstall io.github.eylenburg.LinOffice\n\n"
+                "That removes the application only. The Windows virtual machine stays until you delete "
+                "the LinOffice container and the linoffice_data volume.\n\n"
+                "To delete Windows and start over, run setup again, abort it, and choose \"Yes, delete\". "
+                "That also removes compose.yaml and the setup progress.",
+            )
+            return
         reply = QMessageBox.question(self, 'Confirm Uninstall',
                                      'Are you sure you want to uninstall LinOffice?',
                                      QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
@@ -864,34 +962,90 @@ class TroubleshootingWindow(QMainWindow):
                 ['mate-terminal', '-e', UNINSTALL_SCRIPT],
                 ['xterm', '-e', UNINSTALL_SCRIPT],
             ]
+            started = False
             for cmd in terminal_cmds:
                 try:
                     subprocess.Popen(cmd)
+                    started = True
                     break
                 except FileNotFoundError:
                     continue
+            if not started:
+                QMessageBox.warning(
+                    self,
+                    "Uninstall",
+                    "Could not find a terminal program. Run uninstall.sh from a terminal instead.",
+                )
 
     def run_healthcheck(self):
         reply = QMessageBox.question(self, 'Confirm Healthcheck',
-                                     'Do yu want to run a healthcheck? This will run a few tests to see if your system is set up correctly.',
+                                     'Do you want to run a health check? This will run a few tests to see if your system is set up correctly.',
                                      QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
-        if reply == QMessageBox.Yes:
-            # Try to open in a new terminal window (x-terminal-emulator, gnome-terminal, konsole)
-            terminal_cmds = [
-                ['x-terminal-emulator', '-e', 'bash', '-c', f'{SETUP_SCRIPT} --healthcheck; exec bash'],
-                ['konsole', '-e', 'bash', '-c', f'{SETUP_SCRIPT} --healthcheck; exec bash'],
-                ['gnome-terminal', '--', 'bash', '-c', f'{SETUP_SCRIPT} --healthcheck; exec bash'],
-                ['xfce4-terminal', '-e', 'bash', '-c', f'{SETUP_SCRIPT} --healthcheck; exec bash'],
-                ['lxterminal', '-e', 'bash', '-c', f'{SETUP_SCRIPT} --healthcheck; exec bash'],
-                ['mate-terminal', '-e', 'bash', '-c', f'{SETUP_SCRIPT} --healthcheck; exec bash'],
-                ['xterm', '-e', 'bash', '-c', f'{SETUP_SCRIPT} --healthcheck; exec bash'],
-            ]
-            for cmd in terminal_cmds:
-                try:
-                    subprocess.Popen(cmd)
-                    break
-                except FileNotFoundError:
-                    continue
+        if reply != QMessageBox.Yes:
+            return
+        if os.environ.get("FLATPAK_ID"):
+            self._run_healthcheck_in_window()
+            return
+        # Try to open in a new terminal window (x-terminal-emulator, gnome-terminal, konsole)
+        terminal_cmds = [
+            ['x-terminal-emulator', '-e', 'bash', '-c', f'{SETUP_SCRIPT} --healthcheck; exec bash'],
+            ['konsole', '-e', 'bash', '-c', f'{SETUP_SCRIPT} --healthcheck; exec bash'],
+            ['gnome-terminal', '--', 'bash', '-c', f'{SETUP_SCRIPT} --healthcheck; exec bash'],
+            ['xfce4-terminal', '-e', 'bash', '-c', f'{SETUP_SCRIPT} --healthcheck; exec bash'],
+            ['lxterminal', '-e', 'bash', '-c', f'{SETUP_SCRIPT} --healthcheck; exec bash'],
+            ['mate-terminal', '-e', 'bash', '-c', f'{SETUP_SCRIPT} --healthcheck; exec bash'],
+            ['xterm', '-e', 'bash', '-c', f'{SETUP_SCRIPT} --healthcheck; exec bash'],
+        ]
+        started = False
+        for cmd in terminal_cmds:
+            try:
+                subprocess.Popen(cmd)
+                started = True
+                break
+            except FileNotFoundError:
+                continue
+        if not started:
+            QMessageBox.warning(
+                self,
+                "Health check",
+                "Could not find a terminal program. Run setup.sh --healthcheck from a terminal instead.",
+            )
+
+    def _run_healthcheck_in_window(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Health check")
+        dialog.setMinimumSize(640, 420)
+        layout = QVBoxLayout(dialog)
+        text = QTextEdit()
+        text.setReadOnly(True)
+        text.setPlainText("Running health check...\n")
+        layout.addWidget(text)
+        close_btn = QPushButton("Close")
+        close_btn.setEnabled(False)
+        layout.addWidget(close_btn)
+        close_btn.clicked.connect(dialog.accept)
+
+        process = QProcess(dialog)
+        process.setProgram("/bin/bash")
+        process.setArguments([SETUP_SCRIPT, "--healthcheck"])
+        process.setProcessChannelMode(QProcess.MergedChannels)
+
+        def append_output():
+            data = bytes(process.readAllStandardOutput()).decode(errors="ignore")
+            if not data:
+                return
+            text.moveCursor(QTextCursor.End)
+            text.insertPlainText(data)
+
+        def finished():
+            append_output()
+            text.append("\nHealth check finished.")
+            close_btn.setEnabled(True)
+
+        process.readyReadStandardOutput.connect(append_output)
+        process.finished.connect(finished)
+        process.start()
+        dialog.exec()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

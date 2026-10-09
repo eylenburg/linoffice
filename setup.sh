@@ -5,28 +5,41 @@
 CONTAINER_NAME="LinOffice" # should match the name in the compose.yaml
 CONTAINER_EXISTS=0  # 0 = Does not exist (default), 1 = exists
 
-# Absolute filepaths
-USER_APPLICATIONS_DIR="${HOME}/.local/share/applications"
-APPDATA_PATH="${HOME}/.local/share/linoffice"
-# Ensure APPDATA_PATH exists before using it
-mkdir -p "$APPDATA_PATH"
+# Prefix, config, and data directories. See lib/paths.sh.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/paths.sh
+source "${SCRIPT_DIR}/lib/paths.sh" || exit 1
+
+# Optional and explicit. Does not run during a normal setup.
+for _linoffice_arg in "$@"; do
+  if [[ "$_linoffice_arg" == "--refresh-oem" ]]; then
+    exec "$LINOFFICE_SCRIPT" refresh-oem
+  fi
+done
+unset _linoffice_arg
+
+# APPDATA_PATH is the resolved data directory (legacy ~/.local/share/linoffice when that directory already exists).
+APPDATA_PATH="$LINOFFICE_DATA_DIR"
+USER_APPLICATIONS_DIR="$LINOFFICE_APPLICATIONS_DIR"
+linoffice_ensure_dirs || exit 1
+linoffice_seed_config || exit 1
+linoffice_write_paths_env || exit 1
 SUCCESS_FILE="${APPDATA_PATH}/success"
 PROGRESS_FILE="${APPDATA_PATH}/setup_progress.log"
 OUTPUT_LOG="${APPDATA_PATH}/setup_output.log"
 
-# Relative filepaths
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LINOFFICE_DIR="$SCRIPT_DIR"
-LINOFFICE="$(realpath "${SCRIPT_DIR}/linoffice.sh")"
-COMPOSE_FILE="$(realpath "${SCRIPT_DIR}/config/compose.yaml")"
-LINOFFICE_CONF="$(realpath "${SCRIPT_DIR}/config/linoffice.conf")"
-OEM_DIR="$(realpath "${SCRIPT_DIR}/config/oem")"
-LOCALE_REG_SCRIPT="$(realpath "${SCRIPT_DIR}/config/locale_reg.sh")"
-LOCALE_LANG_SCRIPT="$(realpath "${SCRIPT_DIR}/config/locale_lang.sh")"
-REGIONAL_REG="$(realpath "${SCRIPT_DIR}/config/oem/registry/regional_settings.reg")"
+# App files stay in PREFIX. Generated compose/conf/oem stay in CONFIG_DIR.
+LINOFFICE_DIR="$LINOFFICE_PREFIX"
+LINOFFICE="$LINOFFICE_SCRIPT"
+COMPOSE_FILE="$LINOFFICE_COMPOSE_FILE"
+LINOFFICE_CONF="$LINOFFICE_CONF_FILE"
+OEM_DIR="$LINOFFICE_OEM_DIR"
+LOCALE_REG_SCRIPT="$LINOFFICE_PREFIX/config/locale_reg.sh"
+LOCALE_LANG_SCRIPT="$LINOFFICE_PREFIX/config/locale_lang.sh"
+REGIONAL_REG="$LINOFFICE_OEM_DIR/registry/regional_settings.reg"
 LOGFILE="${APPDATA_PATH}/windows_install.log"
-APPS_DIR="$(realpath "${SCRIPT_DIR}/apps")"
-DESKTOP_DIR="$(realpath "${APPS_DIR}/desktop")"
+APPS_DIR="$LINOFFICE_PREFIX/apps"
+DESKTOP_DIR="$APPS_DIR/desktop"
 
 # Available and working freerdp commands
 EXISTS_XFREERDP=false
@@ -36,6 +49,8 @@ FREERDP_COMMAND="" # will be checked in the script whether it's xfreerdp, xfreer
 FREERDP_SEC_RDP=false
 FREERDP_NETWORK_LAN=false
 FREERDP_NSC=false
+# Flags saved when the NSCodec fallback is the one that connected.
+FREERDP_NSC_FLAGS=""
 FREERDP_XWAYLAND=false
 
 # Progress tracking states
@@ -87,7 +102,11 @@ print_progress() {
 # Name: 'use_venv'
 # Role: Activate virtual environment if available
 use_venv() {
-  local venv_dir="$HOME/.local/bin/linoffice/venv"
+  local venv_dir="$LINOFFICE_VENV_DIR"
+  local legacy_venv="$LINOFFICE_LEGACY_VENV_DIR"
+  if [[ ! -f "$venv_dir/bin/activate" && -f "$legacy_venv/bin/activate" ]]; then
+    venv_dir="$legacy_venv"
+  fi
   local activate_script="$venv_dir/bin/activate"
 
   print_info "Checking for virtual environment at: $venv_dir"
@@ -139,7 +158,7 @@ PY
         return 1
     fi
   else
-    print_info "Virtual environment not found at $venv_dir, using system Python"
+    print_info "Virtual environment not found at $LINOFFICE_VENV_DIR or $legacy_venv, using system Python"
     return 1
   fi
 }
@@ -176,17 +195,23 @@ validate_podman_compose() {
   return 0
 }
 
-use_venv
+if [[ -n "${FLATPAK_ID:-}" ]]; then
+  USE_VENV=0
+  print_info "This is the LinOffice Flatpak. FreeRDP and podman-compose are included. Podman must be installed on the host."
+else
+  use_venv
+fi
 
 # Function to display usage information
 print_usage() {
-    print_info "Usage: $0 [--desktop] [--firstrun] [--installoffice] [--healthcheck]"
+    print_info "Usage: $0 [--desktop] [--firstrun] [--installoffice] [--healthcheck] [--refresh-oem]"
     print_info "Options:"
     print_info " (no flag)     Run the installation script from the beginning"
     print_info "  --desktop    Only recreate the desktop files (.desktop launchers)"
     print_info "  --firstrun   Force RDP and Office installation checks"
     print_info "  --installoffice   Only run the Office installation script script (in case the Windows installation has finished but Office is not installed)"
-    print_info "  --healthcheck   Check that the system requirements are met and dependencies are installed and the container is healthy"
+    print_info "  --healthcheck   Check that Podman is available, required programs are present, and the container is healthy"
+    print_info "  --refresh-oem   Copy OEM scripts into an existing Windows VM (does not reinstall Windows)"
     exit 1
 }
 
@@ -317,9 +342,13 @@ function check_requirements() {
     REQUIRED_RAM=7 # 8 GB shows up as 7.6 GiB so best to just set the threshold to 7 in this script
     AVAILABLE_RAM="$(LC_ALL=C free -b | awk '/^Mem:/{print int($2/1024/1024/1024)}')"
     if [ "$AVAILABLE_RAM" -lt "$REQUIRED_RAM" ]; then
+        local ram_hint="The Windows VM needs 4 GB of RAM. If you still want to continue with the installation, for example if you are using zswap, you can change the minimum RAM required by editing line $ram_line in $SCRIPT_DIR/setup.sh and then run the setup again."
+        if [[ -n "${FLATPAK_ID:-}" ]]; then
+            ram_hint="The Windows VM needs 4 GB of RAM. This Flatpak cannot be edited to lower that limit. Free some memory on the host and run setup again."
+        fi
         exit_with_error "Insufficient RAM. Required: ${REQUIRED_RAM}GB, Available: ${AVAILABLE_RAM}GB. \
     Please upgrade your system memory to at least ${REQUIRED_RAM}GB.
-    The Windows VM needs 4 GB of RAM. If you still want to continue with the installation, for example if you are using zswap, you can change the minimum RAM required by editing line $ram_line in $SCRIPT_DIR/setup.sh and then run the setup again."
+    $ram_hint"
     fi
     print_success "Sufficient RAM detected: ${AVAILABLE_RAM}GB"
 
@@ -330,7 +359,9 @@ function check_requirements() {
     else        
         print_info "Checking minimum free storage"
         REQUIRED_STORAGE=64
-        AVAILABLE_STORAGE=$(df -B1G --output=avail /home | tail -n 1 | awk '{print $1}')
+        # The VM disk is stored under the home directory. Inside Flatpak, /home
+        # is not that filesystem: on Fedora Atomic the home path is /var/home.
+        AVAILABLE_STORAGE=$(df -B1G --output=avail "$HOME" | tail -n 1 | awk '{print $1}')
         if [ "$AVAILABLE_STORAGE" -lt "$REQUIRED_STORAGE" ]; then
             exit_with_error "Insufficient free storage. Required: ${REQUIRED_STORAGE}GB, Available: ${AVAILABLE_STORAGE}GB \
         Please free up disk space or use a different storage device."
@@ -341,13 +372,13 @@ function check_requirements() {
     # Check if computer supports virtualization
     print_info "Checking virtualization support"
 
-    if ! command -v lscpu &> /dev/null; then
-        exit_with_error "lscpu command not found. Please install util-linux package."
-    fi
-
-    # Check for virtualization support
-    if lscpu | grep -qiE 'virtualization|vmx|svm'; then
+    if command -v lscpu &> /dev/null && lscpu | grep -qiE 'virtualization|vmx|svm'; then
         echo "Virtualization is supported."
+    elif [[ -n "${FLATPAK_ID:-}" ]] && grep -qE 'vmx|svm' /proc/cpuinfo; then
+        # The KDE runtime may not ship lscpu. CPU flags are still visible here.
+        echo "Virtualization is supported."
+    elif ! command -v lscpu &> /dev/null; then
+        exit_with_error "lscpu command not found. Please install util-linux package."
     else
         exit_with_error "CPU virtualization not supported or not enabled.
         
@@ -360,8 +391,19 @@ function check_requirements() {
         4. If you can't find these options, your CPU may not support virtualization"
     fi
 
-    # Additional check for KVM support
-    if [ ! -e /dev/kvm ]; then
+    # Additional check for KVM support. Inside Flatpak, /dev/kvm belongs to the
+    # host: Podman is the host binary, and this sandbox does not get the device.
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        # --directory must exist on the host. The sandbox cwd is /app, and
+        # flatpak-spawn fails instead of testing /dev/kvm when that path is used.
+        flatpak-spawn --host --directory="$HOME" test -e /dev/kvm
+        kvm_present=$?
+    elif [ -e /dev/kvm ]; then
+        kvm_present=0
+    else
+        kvm_present=1
+    fi
+    if [ "$kvm_present" -ne 0 ]; then
         exit_with_error "KVM device not available. Virtualization may not be enabled in BIOS.
         
     HOW TO FIX:
@@ -378,6 +420,19 @@ function check_requirements() {
     print_info "Checking if podman is installed"
 
     if ! command -v podman &> /dev/null; then
+        if [[ -n "${FLATPAK_ID:-}" ]]; then
+            exit_with_error "Podman is not installed on the host.
+
+    This Flatpak includes FreeRDP and podman-compose. The only program you need to install yourself is Podman.
+
+    HOW TO FIX:
+    Ubuntu/Debian: sudo apt update && sudo apt install podman
+    Fedora/RHEL: sudo dnf install podman
+    openSUSE: sudo zypper install podman
+    Arch Linux: sudo pacman -S podman
+
+    Or visit: https://podman.io/getting-started/installation"
+        fi
         exit_with_error "podman is not installed.
         
     HOW TO FIX:
@@ -391,15 +446,36 @@ function check_requirements() {
     fi
     
     if ! podman info >/dev/null 2>&1; then
+        if [[ -n "${FLATPAK_ID:-}" ]]; then
+            exit_with_error "Podman is not available on the host, or it is not set up for this user.
+
+    This Flatpak includes FreeRDP and podman-compose. Install Podman on the host, then run 'podman info' there to confirm it works.
+
+    HOW TO FIX:
+    Ubuntu/Debian: sudo apt update && sudo apt install podman
+    Fedora/RHEL: sudo dnf install podman
+    openSUSE: sudo zypper install podman
+    Arch Linux: sudo pacman -S podman
+
+    Or visit: https://podman.io/getting-started/installation"
+        fi
         exit_with_error "Podman is not configured correctly or you lack sufficient permissions. Run 'podman info' to diagnose the issue."
     fi
 
     PODMAN_VERSION=$(podman --version)
-    print_success "podman is installed: $PODMAN_VERSION"
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        print_success "Podman on the host: $PODMAN_VERSION"
+    else
+        print_success "podman is installed: $PODMAN_VERSION"
+    fi
 
     # Check if podman-compose is installed
-    print_info "Checking if podman-compose is installed"
-    print_info "Python environment: $(if [[ "$USE_VENV" -eq 1 ]]; then echo "Virtual environment at $VENV_PATH"; else echo "System Python"; fi)"
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        print_info "Checking the podman-compose included in this Flatpak"
+    else
+        print_info "Checking if podman-compose is installed"
+        print_info "Python environment: $(if [[ "$USE_VENV" -eq 1 ]]; then echo "Virtual environment at $VENV_PATH"; else echo "System Python"; fi)"
+    fi
 
     # Determine which Python to use for dependency checks
     if [[ "$USE_VENV" -eq 1 ]]; then
@@ -410,7 +486,22 @@ function check_requirements() {
         PYTHON_ENV="system"
     fi
 
-    if [[ "$USE_VENV" -eq 0 ]]; then
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        if [[ -x /app/bin/podman-compose ]] && validate_podman_compose /app/bin/podman-compose; then
+            COMPOSE_COMMAND=/app/bin/podman-compose
+        elif command -v podman-compose >/dev/null 2>&1 && validate_podman_compose "$(command -v podman-compose)"; then
+            COMPOSE_COMMAND="$(command -v podman-compose)"
+        elif python3 -c "import podman_compose" >/dev/null 2>&1; then
+            COMPOSE_COMMAND="python3 -m podman_compose"
+        else
+            exit_with_error "This Flatpak does not include a working podman-compose.
+
+        Reinstall LinOffice. You do not need to install podman-compose on the host."
+        fi
+        if ! python3 -c "import dotenv" >/dev/null 2>&1; then
+            exit_with_error "This Flatpak does not include python-dotenv. Reinstall LinOffice."
+        fi
+    elif [[ "$USE_VENV" -eq 0 ]]; then
         # Use system podman-compose, and avoid stale user-level wrappers
         if [[ -x "/usr/bin/podman-compose" ]] && validate_podman_compose "/usr/bin/podman-compose"; then
             COMPOSE_COMMAND="/usr/bin/podman-compose"
@@ -525,9 +616,16 @@ function check_requirements() {
     fi
 
     if ! COMPOSE_VERSION=$($COMPOSE_COMMAND --version 2>/dev/null); then
+        if [[ -n "${FLATPAK_ID:-}" ]]; then
+            exit_with_error "The podman-compose program included in this Flatpak did not run. Reinstall LinOffice."
+        fi
         exit_with_error "podman-compose command '$COMPOSE_COMMAND' failed to run. Please reinstall podman-compose or remove stale copies in ~/.local/bin."
     fi
-    print_success "podman-compose is installed: $COMPOSE_VERSION"
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        print_success "podman-compose from this Flatpak: $COMPOSE_VERSION"
+    else
+        print_success "podman-compose is installed: $COMPOSE_VERSION"
+    fi
 
     # Check if FreeRDP is available
     print_info "Checking if FreeRDP is available"
@@ -573,6 +671,11 @@ function check_requirements() {
             exit_with_error "FreeRDP version 3 or greater is required. Detected version: $FREERDP_MAJOR_VERSION"
         fi
     else
+        if [[ -n "${FLATPAK_ID:-}" ]]; then
+            exit_with_error "FreeRDP is missing from this Flatpak.
+
+    Reinstall LinOffice. You do not need the separate com.freerdp.FreeRDP application."
+        fi
         exit_with_error "FreeRDP is not installed
         
     HOW TO FIX:
@@ -585,21 +688,44 @@ function check_requirements() {
     fi
 
     if ! $FREERDP_COMMAND --version >/dev/null 2>&1; then
+        if [[ -n "${FLATPAK_ID:-}" ]]; then
+            exit_with_error "The FreeRDP program included in this Flatpak did not run. Reinstall LinOffice."
+        fi
         exit_with_error "FreeRDP command '$FREERDP_COMMAND' is not functional. Please ensure FreeRDP is correctly installed and configured."
     fi
 
     print_success "FreeRDP found. Using FreeRDP command '${FREERDP_COMMAND}'."
 
-    # Check if iptables modules are loaded
+    # Check if iptables modules are loaded. Inside Flatpak, lsmod must run on the host.
     print_info "Checking iptables kernel modules"
-    if ! lsmod | grep -q ip_tables || ! lsmod | grep -q iptable_nat; then
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        module_list=$(flatpak-spawn --host --directory="$HOME" lsmod 2>/dev/null || true)
+    else
+        module_list=$(lsmod 2>/dev/null || true)
+    fi
+    legacy_iptables=false
+    nftables_ok=false
+    if echo "$module_list" | grep -q ip_tables && echo "$module_list" | grep -q iptable_nat; then
+        legacy_iptables=true
+    fi
+    if echo "$module_list" | grep -q nf_tables; then
+        nftables_ok=true
+    fi
+    if [[ "$legacy_iptables" == true || "$nftables_ok" == true ]]; then
+        if [[ "$nftables_ok" == true && "$legacy_iptables" != true ]]; then
+            print_success "Netfilter (nftables) is available. The legacy ip_tables modules are not required."
+        else
+            print_success "iptables modules are loaded"
+        fi
+    elif [[ -n "${FLATPAK_ID:-}" ]]; then
+        print_info "WARNING: The host kernel has neither nftables nor the legacy iptables modules loaded. The Windows VM network may not work until those are available."
+    else
         print_info "WARNING: iptables kernel modules not loaded. Sharing the /home folder with the Windows VM will not work unless connected via RDP. HOW TO FIX:
         
     Run the following command:
     echo -e 'ip_tables\niptable_nat' | sudo tee /etc/modules-load.d/iptables.conf
     Then reboot your system."
     fi
-    print_success "iptables modules are loaded"
 
     # Check if most important LinOffice files exist
     print_info "Checking for essential setup files"
@@ -619,15 +745,15 @@ function check_requirements() {
         3. If using SELinux/AppArmor, you may need to adjust security contexts"
     fi
 
-    # Check if compose.yaml exists
-    if [ ! -f "$COMPOSE_FILE.default" ]; then
-        exit_with_error "Compose file not found: $COMPOSE_FILE.default
+    # Templates live in PREFIX. Generated compose.yaml / linoffice.conf live in CONFIG_DIR.
+    if [ ! -f "$LINOFFICE_COMPOSE_DEFAULT" ]; then
+        exit_with_error "Compose file not found: $LINOFFICE_COMPOSE_DEFAULT
     Please ensure the file exists in the config directory."
     fi
 
         # Check if LinOffice script exists
-    if [ ! -f "$LINOFFICE_CONF.default" ]; then
-        exit_with_error "LinOffice configuration file not found: $LINOFFICE_CONF.default
+    if [ ! -f "$LINOFFICE_CONF_DEFAULT" ]; then
+        exit_with_error "LinOffice configuration file not found: $LINOFFICE_CONF_DEFAULT
     Please ensure the file exists in the config directory."
     fi
     
@@ -638,7 +764,11 @@ function check_requirements() {
     print_success "Files found."
 
     # Make scripts executable
-    print_info "Making scripts executable"
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        print_info "Checking script permissions"
+    else
+        print_info "Making scripts executable"
+    fi
 
     if [ ! -f "$LINOFFICE" ]; then
         exit_with_error "File not found: $LINOFFICE
@@ -655,16 +785,26 @@ function check_requirements() {
     Please ensure the config directory and local_compose.sh script exist."
     fi
 
-    chmod +x "$LINOFFICE" || exit_with_error "Failed to make $LINOFFICE executable"
-    chmod +x "$LOCALE_REG_SCRIPT" || exit_with_error "Failed to make $LOCALE_REG_SCRIPT executable"
-    chmod +x "$LOCALE_LANG_SCRIPT" || exit_with_error "Failed to make $LOCALE_LANG_SCRIPT executable"
-
-    print_success "Made scripts executable"
+    if [[ -w "$LINOFFICE" ]]; then
+        chmod +x "$LINOFFICE" || exit_with_error "Failed to make $LINOFFICE executable"
+        chmod +x "$LOCALE_REG_SCRIPT" || exit_with_error "Failed to make $LOCALE_REG_SCRIPT executable"
+        chmod +x "$LOCALE_LANG_SCRIPT" || exit_with_error "Failed to make $LOCALE_LANG_SCRIPT executable"
+        print_success "Made scripts executable"
+    elif [[ -n "${FLATPAK_ID:-}" ]]; then
+        print_info "Scripts in this Flatpak are already executable."
+    else
+        print_info "PREFIX is not writable; leaving script permissions unchanged."
+    fi
 
     # Check for various potential Podman problems
     # Check subUID/subGID mappings as some users had problems here
     print_info "Checking subUID/subGID mappings"
-    if ! grep -q "^$(whoami):" /etc/subuid || ! grep -q "^$(whoami):" /etc/subgid; then
+    # Inside Flatpak, /etc is the runtime image. Host Podman reads the host files.
+    subuid_grep=(grep)
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        subuid_grep=(flatpak-spawn --host --directory="$HOME" grep)
+    fi
+    if ! "${subuid_grep[@]}" -q "^$(whoami):" /etc/subuid || ! "${subuid_grep[@]}" -q "^$(whoami):" /etc/subgid; then
         exit_with_error "Missing subUID/subGID mappings for the user.
         HOW TO FIX:
         1. Run: sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $(whoami)
@@ -846,7 +986,7 @@ EOF
     print_info "Running locale configuration scripts"
 
     print_info "Executing: $LOCALE_REG_SCRIPT"
-    if ! "$LOCALE_REG_SCRIPT"; then
+    if ! bash "$LOCALE_REG_SCRIPT" "$REGIONAL_REG"; then
         exit_with_error "Failed to execute $LOCALE_REG_SCRIPT (exit code: $?)"
     fi
 
@@ -897,20 +1037,19 @@ function create_container() {
     local timeout_counter=0
     local max_timeout=3600  # 60 minutes maximum wait time between podman-compose log output
     local last_activity_time=$(date +%s)
-    local windows_version=""
 
     # Start podman-compose in the background with unbuffered output and strip ANSI codes
     print_info "Starting podman-compose in detached mode..."
 	# If the compose file doesn't exist yet, initialize it from the default template
 	if [ ! -f "$COMPOSE_FILE" ]; then
-		if [ -f "$COMPOSE_FILE.default" ]; then
+		if [ -f "$LINOFFICE_COMPOSE_DEFAULT" ]; then
 			print_info "Creating $COMPOSE_FILE from default template"
-			cp "$COMPOSE_FILE.default" "$COMPOSE_FILE" || exit_with_error "Failed to copy $COMPOSE_FILE.default to $COMPOSE_FILE"
+			cp "$LINOFFICE_COMPOSE_DEFAULT" "$COMPOSE_FILE" || exit_with_error "Failed to copy $LINOFFICE_COMPOSE_DEFAULT to $COMPOSE_FILE"
 		else
-			exit_with_error "Compose file missing: $COMPOSE_FILE and $COMPOSE_FILE.default not found"
+			exit_with_error "Compose file missing: $COMPOSE_FILE and $LINOFFICE_COMPOSE_DEFAULT not found"
 		fi
 	fi
-    if ! $COMPOSE_COMMAND --file "$COMPOSE_FILE" up -d >>"$LOGFILE" 2>&1; then
+    if ! linoffice_compose up -d >>"$LOGFILE" 2>&1; then
         exit_with_error "Failed to start containers. Check $LOGFILE for details."
     fi
 
@@ -951,7 +1090,6 @@ function create_container() {
                 print_step "4" "Starting Windows download (about 5 GB). This will take a while depending on your Internet speed."
                 download_started=true
                 last_activity_time=$current_time
-                windows_version=$(grep "Downloading Windows" "$LOGFILE" | tail -1 | grep -oE '10|11')
             fi
 
             # Output download progress at each percent
@@ -962,11 +1100,7 @@ function create_container() {
                 pct=$(echo "$progress_line" | grep -oE "[ ]{1,3}[0-9]{1,3}%" | tail -1 | tr -d ' %')
                 speed=$(echo "$progress_line" | grep -oE "[0-9.]+[MK]" | tail -1)
                 if [[ "$pct" =~ ^[0-9]+$ ]] && [ "$pct" -gt "$last_percent" ] && [ "$pct" -le 100 ]; then
-                    if [ -n "$windows_version" ]; then
-                        print_progress "Downloading Windows ${windows_version}: ${pct}% | Speed: ${speed}B/s"
-                    else
-                        print_progress "Downloading Windows: ${pct}% | Speed: ${speed}B/s"
-                    fi
+                    print_progress "Downloading Windows: ${pct}% | Speed: ${speed}B/s"
                     last_percent=$pct
                 fi
             fi
@@ -1056,7 +1190,7 @@ function verify_container_health() {
     # Ensure container exists, otherwise create it
     if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
         print_info "Container does not exist. Creating it now with podman-compose up -d..."
-        if ! $COMPOSE_COMMAND --file "$COMPOSE_FILE" up -d; then
+        if ! linoffice_compose up -d; then
             print_error "Failed to create container via compose up -d"
             return 1
         fi
@@ -1067,11 +1201,11 @@ function verify_container_health() {
     # Check if container is running, otherwise start it
     if ! podman ps -q --filter "name=$CONTAINER_NAME" | grep -q .; then
         print_info "Container is not running. Attempting to start it..."
-        if ! $COMPOSE_COMMAND --file "$COMPOSE_FILE" start; then
+        if ! linoffice_compose start; then
             print_error "Failed to start container"
             print_info "Container may be in an improper state. Try these commands to fix it:
             1. podman rm -f LinOffice
-            2. $COMPOSE_COMMAND --file config/compose.yaml up -d"
+            2. $COMPOSE_COMMAND -p linoffice --file \"$LINOFFICE_COMPOSE_FILE\" up -d"
             return 1
         fi
         print_info "Waiting for container to boot..."
@@ -1084,7 +1218,7 @@ function verify_container_health() {
         print_error "Container logs show potential issues"
         print_info "If the container is in an improper state, try these commands to fix it:
         1. podman rm -f LinOffice
-        2. $COMPOSE_COMMAND --file config/compose.yaml up -d"
+        2. $COMPOSE_COMMAND -p linoffice --file \"$LINOFFICE_COMPOSE_FILE\" up -d"
         return 1
     fi
     
@@ -1111,10 +1245,15 @@ function update_config_file() {
         rdp_flags=""
     fi
     
-    # Remove flags if corresponding var is false
-    if [[ "$FREERDP_NSC" != "true" ]]; then
-        rdp_flags=$(echo "$rdp_flags" | sed 's| /gfx:off /nsc||g; s|^/gfx:off /nsc ||; s| /gfx:off /nsc$||')
-    fi
+    # Remove flags if corresponding var is false. FreeRDP 2 used /gfx:off.
+    # FreeRDP 3 rejects that value, so the v3 form is stored separately.
+    rdp_flags=$(echo "$rdp_flags" | sed \
+        -e 's| /tune:FreeRDP_SupportGraphicsPipeline:false /nsc||g' \
+        -e 's|^/tune:FreeRDP_SupportGraphicsPipeline:false /nsc ||' \
+        -e 's| /tune:FreeRDP_SupportGraphicsPipeline:false /nsc$||' \
+        -e 's| /gfx:off /nsc||g' \
+        -e 's|^/gfx:off /nsc ||' \
+        -e 's| /gfx:off /nsc$||')
     if [[ "$FREERDP_NETWORK_LAN" != "true" ]]; then
         rdp_flags=$(echo "$rdp_flags" | sed 's| /network:lan||g; s|^/network:lan ||; s| /network:lan$||')
     fi
@@ -1124,8 +1263,9 @@ function update_config_file() {
     
     # Add flags if corresponding var is true (trim and add if not already present, but per spec, just add)
     if [[ "$FREERDP_NSC" == "true" ]]; then
-        if ! echo "$rdp_flags" | grep -q "/gfx:off /nsc"; then
-            rdp_flags="$rdp_flags /gfx:off /nsc"
+        local nsc_flags="${FREERDP_NSC_FLAGS:-/gfx:off /nsc}"
+        if ! echo "$rdp_flags" | grep -qF "$nsc_flags"; then
+            rdp_flags="$rdp_flags $nsc_flags"
         fi
     fi
     if [[ "$FREERDP_NETWORK_LAN" == "true" ]]; then
@@ -1162,6 +1302,15 @@ function check_available() {
 	fi
 	print_step "7" "Checking if everything is set up correctly"
 	print_info "Checking if RDP server is available"
+
+	# xfreerdp3 is an X11 client. A Wayland session leaves DISPLAY empty unless
+	# the X11 socket is shared, and every probe then dies before connecting.
+	if [[ -z "${DISPLAY:-}" ]]; then
+		print_error "FreeRDP has no DISPLAY, so it cannot open a window."
+		if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+			print_info "This is a Wayland session. xfreerdp3 also needs the X11 socket (Xwayland)."
+		fi
+	fi
 
 	# Prepare candidate list based on availability
 	local candidates=()
@@ -1228,6 +1377,11 @@ function check_available() {
 		error_lines=$(echo "$output" | grep -F "ERROR" || true)
 		if [ -n "$error_lines" ]; then echo "$error_lines"; fi
 		
+		# A display or parse error never reached Windows. Other failures did.
+		if ! echo "$output" | grep -qE 'failed to open display|Command line parsing failed'; then
+			RDP_REACHED_SERVER=true
+		fi
+
 		# Success when user logoff detected
 		if echo "$output" | grep -q "ERRINFO_LOGOFF_BY_USER"; then
 			print_success "RDP server is available (user logoff detected)"
@@ -1235,6 +1389,25 @@ function check_available() {
 			return 0   
 		fi
 		return 1
+	}
+
+	# FreeRDP 3 rejects /gfx:off. The v2 flag is kept for the xfreerdp binary.
+	_nsc_flags() {
+		local cmd_str="$1"
+		local major=""
+		case "$cmd_str" in
+			xfreerdp3|flatpak*)
+				major=3
+				;;
+			xfreerdp)
+				major=$(xfreerdp --version 2>/dev/null | head -n 1 | grep -o -m 1 '\b[0-9]\S*' | head -n 1 | cut -d'.' -f1 || true)
+				;;
+		esac
+		if [[ "$major" == "3" ]]; then
+			printf '%s\n' "/tune:FreeRDP_SupportGraphicsPipeline:false" "/nsc"
+		else
+			printf '%s\n' "/gfx:off" "/nsc"
+		fi
 	}
 
 	# Helper to run full test sequence
@@ -1296,35 +1469,42 @@ function check_available() {
 		done
 
 		# 6) /nsc variant
+		local nsc_flags=()
 		for c in "${candidates[@]}"; do
-			if _run_attempt "$c" "/gfx:off" "/nsc"; then
+			mapfile -t nsc_flags < <(_nsc_flags "$c")
+			if _run_attempt "$c" "${nsc_flags[@]}"; then
 				FREERDP_COMMAND="$c"
 				FREERDP_NSC=true
+				FREERDP_NSC_FLAGS="${nsc_flags[*]}"
 				update_config_file
 				return 0
 			fi
 		done
 
-		# 7) All together (xwayland, /sec:rdp, /network:lan, /gfx:off /nsc)
+		# 7) All together (xwayland, /sec:rdp, /network:lan, NSCodec)
 		if [ "$on_wayland" = true ]; then
 			for c in "${candidates[@]}"; do
-				if _run_attempt "$c" "XWAYLAND" "/sec:rdp" "/network:lan" "/gfx:off" "/nsc"; then
+				mapfile -t nsc_flags < <(_nsc_flags "$c")
+				if _run_attempt "$c" "XWAYLAND" "/sec:rdp" "/network:lan" "${nsc_flags[@]}"; then
 					FREERDP_COMMAND="$c"
 					FREERDP_XWAYLAND=true
 					FREERDP_SEC_RDP=true
 					FREERDP_NETWORK_LAN=true
 					FREERDP_NSC=true
+					FREERDP_NSC_FLAGS="${nsc_flags[*]}"
 					update_config_file
 					return 0
 				fi
 			done
 		else
 			for c in "${candidates[@]}"; do
-				if _run_attempt "$c" "/sec:rdp" "/network:lan" "/gfx:off" "/nsc"; then
+				mapfile -t nsc_flags < <(_nsc_flags "$c")
+				if _run_attempt "$c" "/sec:rdp" "/network:lan" "${nsc_flags[@]}"; then
 					FREERDP_COMMAND="$c"
 					FREERDP_SEC_RDP=true
 					FREERDP_NETWORK_LAN=true
 					FREERDP_NSC=true
+					FREERDP_NSC_FLAGS="${nsc_flags[*]}"
 					update_config_file
 					return 0
 				fi
@@ -1341,14 +1521,22 @@ function check_available() {
 	fi
 
 	# Run initial test sequence
+	RDP_REACHED_SERVER=false
 	if _run_test_sequence; then
 		update_config_file
 		return 0
 	fi
 
+	# Display and command-line failures happen before any RDP traffic.
+	# Rebooting Windows cannot fix them.
+	if [[ "$RDP_REACHED_SERVER" != true ]]; then
+		print_error "FreeRDP failed on this computer before it contacted Windows. The virtual machine was not rebooted."
+		return 1
+	fi
+
 	# 8) Reboot container and retry
 	print_info "Rebooting Windows VM container and retrying checks..."
-	"$COMPOSE_COMMAND" --file "$COMPOSE_FILE" restart >>"$LOGFILE" 2>&1 || true
+	linoffice_compose restart >>"$LOGFILE" 2>&1 || true
 	sleep 10
 	
 	if ! verify_container_health; then
@@ -1410,12 +1598,13 @@ function check_success() {
 	trap cleanup_freerdp EXIT
 
 	# Clear any existing success file once before attempting connections
-	rm -f "$SUCCESS_FILE"
+	linoffice_clear_success
 
 	# Build command arguments based on successful availability check
 	local cmd_args=(
 		/cert:ignore
 		+home-drive
+		"/drive:linoffice,${LINOFFICE_DATA_DIR}"
 		/u:MyWindowsUser
 		/p:MyWindowsPassword
 		/v:127.0.0.1
@@ -1486,7 +1675,7 @@ function check_success() {
 	# Monitor for success file creation
 	while [ $elapsed_time -lt $installation_timeout ]; do
 		# Check if success file exists
-		if [ -f "$SUCCESS_FILE" ]; then
+		if linoffice_success_exists; then
 			print_success "Success file detected - Office installation is complete!"
 			cleanup_freerdp
 			return 0
@@ -1498,7 +1687,7 @@ function check_success() {
 			local exit_code=$?
 			
 			# Check if success file was created before process ended
-			if [ -f "$SUCCESS_FILE" ]; then
+			if linoffice_success_exists; then
 				print_success "Success file detected - Office installation is complete!"
 				return 0
 			fi
@@ -1507,7 +1696,7 @@ function check_success() {
 			print_info "Checking if success file was created..."
 			
 			sleep 2
-			if [ -f "$SUCCESS_FILE" ]; then
+			if linoffice_success_exists; then
 				print_success "Success file found - Office installation completed successfully!"
 				return 0
 			else
@@ -1526,7 +1715,7 @@ function check_success() {
 	print_info "Check log file at $LOGFILE for details"
 	
 	# Final check for success file
-	if [ -f "$SUCCESS_FILE" ]; then
+	if linoffice_success_exists; then
 		print_success "Success file found during cleanup - Office installation completed!"
 		cleanup_freerdp
 		return 0
@@ -1537,6 +1726,14 @@ function check_success() {
 }
 
 function desktop_files() {
+    # Flatpak exports launchers from /app/share/applications. Files written into
+    # the sandbox applications directory are not visible on the host, and an
+    # Exec=/app line written into the real home directory would not run there.
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        print_success "This Flatpak already includes the LinOffice and Office launchers. Nothing was written to the home directory."
+        return 0
+    fi
+
     print_step "8" "Installing .desktop files (app launchers)"
     
     # Check if required directories exist
@@ -1647,6 +1844,7 @@ try_install_office() {
     local cmd_args=(
         /cert:ignore
         +home-drive
+        "/drive:linoffice,${LINOFFICE_DATA_DIR}"
         /u:MyWindowsUser
         /p:MyWindowsPassword
         /v:127.0.0.1
@@ -1721,10 +1919,16 @@ fi
 
 # If --desktop flag is set, only run desktop_files
 if [ "$DESKTOP_ONLY" = true ]; then
-    print_info "Recreating desktop files..."
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        print_info "Checking application launchers..."
+    else
+        print_info "Recreating desktop files..."
+    fi
     if desktop_files; then
         mark_progress "$PROGRESS_DESKTOP"
-        print_success "App launchers (.desktop files) created successfully!"
+        if [[ -z "${FLATPAK_ID:-}" ]]; then
+            print_success "App launchers (.desktop files) created successfully!"
+        fi
     else
         exit_with_error "Failed to create app launchers (.desktop files)"
     fi
@@ -1775,7 +1979,7 @@ if ! check_progress "$PROGRESS_OFFICE" || [ "$FIRSTRUN" = true ]; then
     if [ "$FIRSTRUN" = true ]; then
         if ! podman ps -q --filter "name=$CONTAINER_NAME" | grep -q .; then
             print_info "Container is not running. Starting LinOffice container for --firstrun..."
-            if ! $COMPOSE_COMMAND --file "$COMPOSE_FILE" start; then
+            if ! linoffice_compose start; then
                 exit_with_error "Failed to start LinOffice container for --firstrun."
             fi
             print_info "Waiting 20 seconds for container to boot..."
@@ -1805,7 +2009,7 @@ else
     print_info "Desktop files already installed, skipping this step. To recreate them, run the script with the --desktop flag."
 fi
 
-# Clean up success file
-rm -f "$SUCCESS_FILE"
+# Clean up success file (data dir and legacy ~/.local/share/linoffice when those differ)
+linoffice_clear_success
 
 print_success "LinOffice setup completed successfully!"

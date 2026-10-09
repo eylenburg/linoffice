@@ -11,7 +11,31 @@ GITHUB_API_URL="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases
 
 LINOFFICE_SCRIPT="$TARGET_DIR/gui/linoffice.py"
 
-APPDATA_DIR="$HOME/.local/share/linoffice"
+# Data directory. Same order as lib/paths.sh. This script is often downloaded
+# on its own, before lib/ exists, so it does not source that file.
+resolve_quickstart_data_dir() {
+  if [[ -n "${LINOFFICE_DATA_DIR:-}" ]]; then
+    printf '%s\n' "$LINOFFICE_DATA_DIR"
+    return
+  fi
+  local xdg="${XDG_DATA_HOME:-$HOME/.local/share}/linoffice"
+  local legacy="$HOME/.local/share/linoffice"
+  local marker
+  if [[ -d "$xdg" ]]; then
+    for marker in success setup_progress.log linoffice.log sleep_marker installed_dependencies; do
+      if [[ -e "$xdg/$marker" ]]; then
+        printf '%s\n' "$xdg"
+        return
+      fi
+    done
+  fi
+  if [[ -d "$legacy" ]]; then
+    printf '%s\n' "$legacy"
+    return
+  fi
+  printf '%s\n' "$xdg"
+}
+APPDATA_DIR="$(resolve_quickstart_data_dir)"
 INSTALLED_PM_PACKAGES=()
 INSTALLED_FLATPAKS=()
 INSTALLED_PIP_PACKAGES=()
@@ -672,15 +696,44 @@ download_latest() {
 
   echo "Installing to $TARGET_DIR..."
 
+  # Generated config stays out of a fresh PREFIX. On update, keep copies the
+  # user already has under config/ so the archive cannot replace them.
+  local preserve_rel backup_dir=""
+  local -a PRESERVE_REL=(
+    "config/compose.yaml"
+    "config/linoffice.conf"
+    "config/oem/registry/regional_settings.reg"
+  )
+
   # Check if TARGET_DIR exists and contains linoffice.sh
   if [[ -d "$TARGET_DIR" && -f "$TARGET_DIR/linoffice.sh" ]]; then
     echo "Existing installation found. Updating files..."
+    backup_dir="$(mktemp -d)"
+    for preserve_rel in "${PRESERVE_REL[@]}"; do
+      if [[ -f "$TARGET_DIR/$preserve_rel" ]]; then
+        mkdir -p "$backup_dir/$(dirname "$preserve_rel")"
+        cp -a "$TARGET_DIR/$preserve_rel" "$backup_dir/$preserve_rel"
+      fi
+    done
     cp -a "$SOURCE_DIR"/. "$TARGET_DIR"/
+    for preserve_rel in "${PRESERVE_REL[@]}"; do
+      if [[ -f "$backup_dir/$preserve_rel" ]]; then
+        mkdir -p "$TARGET_DIR/$(dirname "$preserve_rel")"
+        cp -a "$backup_dir/$preserve_rel" "$TARGET_DIR/$preserve_rel"
+      else
+        # The archive must not create generated config that was not already there.
+        rm -f "$TARGET_DIR/$preserve_rel"
+      fi
+    done
+    rm -rf "$backup_dir"
   else
     # If TARGET_DIR doesn't exist or doesn't contain linoffice.sh, replace it with contents of SOURCE_DIR
     rm -rf "$TARGET_DIR"
     mkdir -p "$TARGET_DIR"
     cp -a "$SOURCE_DIR"/. "$TARGET_DIR"/
+    for preserve_rel in "${PRESERVE_REL[@]}"; do
+      rm -f "$TARGET_DIR/$preserve_rel"
+    done
   fi
 
   # Make everything executable
