@@ -412,7 +412,28 @@ After you've signed out, click <b>Try Again</b>.
                 )
                 return
             if not os.access(script_path, os.X_OK):
-                os.chmod(script_path, 0o755)
+                try:
+                    os.chmod(script_path, 0o755)
+                except OSError:
+                    # /app is read-only in a Flatpak. bash can run the script anyway.
+                    pass
+
+            if os.environ.get("FLATPAK_ID"):
+                # Host terminal programs are not in the sandbox. The dialog
+                # already asked for confirmation, so answer the script's prompt.
+                result = subprocess.run(
+                    ['bash', script_path],
+                    input='y\n',
+                    text=True,
+                    capture_output=True,
+                )
+                message = ((result.stdout or '') + (result.stderr or '')).strip()
+                if result.returncode == 0:
+                    QMessageBox.information(self, "Container removed", message or "LinOffice container removed.", QMessageBox.Ok)
+                else:
+                    QMessageBox.critical(self, "Error", message or "Failed to remove the LinOffice container.", QMessageBox.Ok)
+                self.close()
+                return
         
             terminal_cmds = [
                 ['konsole', '--hold', '-e', 'bash', script_path],

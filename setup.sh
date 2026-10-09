@@ -348,7 +348,9 @@ function check_requirements() {
     else        
         print_info "Checking minimum free storage"
         REQUIRED_STORAGE=64
-        AVAILABLE_STORAGE=$(df -B1G --output=avail /home | tail -n 1 | awk '{print $1}')
+        # The VM disk is stored under the home directory. Inside Flatpak, /home
+        # is not that filesystem: on Fedora Atomic the home path is /var/home.
+        AVAILABLE_STORAGE=$(df -B1G --output=avail "$HOME" | tail -n 1 | awk '{print $1}')
         if [ "$AVAILABLE_STORAGE" -lt "$REQUIRED_STORAGE" ]; then
             exit_with_error "Insufficient free storage. Required: ${REQUIRED_STORAGE}GB, Available: ${AVAILABLE_STORAGE}GB \
         Please free up disk space or use a different storage device."
