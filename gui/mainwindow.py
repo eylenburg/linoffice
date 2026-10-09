@@ -513,6 +513,14 @@ class ToolsWindow(QMainWindow):
         webbrowser.open('http://127.0.0.1:8006')
 
     def run_self_updater(self):
+        if os.environ.get("FLATPAK_ID"):
+            QMessageBox.information(
+                self,
+                "Update",
+                "This copy of LinOffice is a Flatpak. Update it with your software store or with flatpak update.",
+            )
+            return
+
         original_dir = os.getcwd()
         parent_dir = os.path.abspath(os.path.join(original_dir, '..'))
         updater_script = os.path.join(parent_dir, 'updater.py')

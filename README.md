@@ -41,9 +41,7 @@ The project utilises [Winapps](https://github.com/winapps-org/winapps), [Dockur/
 - [ ] Deliver as Flatpak or AppImage, which would have these benefits:
     - Bundles dependencies such as FreeRDP and Podman-Compose; only Podman would need to be installed on the system already
     - Installation and uninstallation more straight-forward for Linux beginners 
-    - Code changes still needed:
-      - Writable paths are resolved by `lib/paths.sh` and `lib/paths.py`. Overrides are `LINOFFICE_PREFIX`, `LINOFFICE_CONFIG_DIR`, `LINOFFICE_DATA_DIR`, and `LINOFFICE_APPLICATIONS_DIR`. New installs use the XDG config and data directories. An existing `config/` next to `linoffice.sh` and an existing `~/.local/share/linoffice` stay in use.
-      - Remaining Flatpak work is the manifest, portals, and access to the host Podman socket.
+    - A draft manifest and AppStream file are in `.flatpak/`. Writable paths are resolved by `lib/paths.sh` and `lib/paths.py`. Inside a Flatpak, setup does not write user `.desktop` files (the package exports them), and FreeRDP uses the shared host network instead of `podman unshare --rootless-netns`. Podman itself stays installed on the host.
 
 
 ### Nice to have but lower priority

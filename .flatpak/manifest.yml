@@ -1,0 +1,183 @@
+# Draft for a local flatpak-builder build. It has not been built here.
+#
+# Flathub does not accept AI-generated manifests, and a submission has to pin a
+# git tag instead of the dir source below. Review and rewrite this file before
+# opening a Flathub pull request.
+#
+# The metainfo release is the latest tag, 2.3.1 (2026-09-28). This dir source
+# is the working tree, so a local build can be newer than that tag.
+#
+# Podman is not bundled. /app/bin/podman runs the host binary with flatpak-spawn.
+# That needs --talk-name=org.freedesktop.Flatpak and is a sandbox escape.
+# Host Podman uses /dev/kvm and /dev/net/tun itself, so this sandbox does not
+# take those devices. FreeRDP is the bundled X11 client (xfreerdp3) and shares
+# the host network namespace, where rootlessport listens on 127.0.0.1.
+#
+# --filesystem=home grants the real home directory, which is what Office needs
+# for the RDP home drive. It does not include other applications' ~/.var/app.
+# PySide6 comes from io.qt.PySide.BaseApp. Confirm that 6.9 still matches
+# org.kde.Platform before a submission; 6.9.2 was the published BaseApp when
+# this draft was written.
+
+id: io.github.eylenburg.LinOffice
+runtime: org.kde.Platform
+runtime-version: '6.9'
+sdk: org.kde.Sdk
+base: io.qt.PySide.BaseApp
+base-version: '6.9'
+command: linoffice-gui
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --socket=pulseaudio
+  - --device=dri
+  - --filesystem=home
+  - --filesystem=/media
+  - --filesystem=/run/media
+  - --talk-name=org.freedesktop.Flatpak
+build-options:
+  env:
+    - BASEAPP_REMOVE_WEBENGINE=1
+    - BASEAPP_DISABLE_NUMPY=1
+cleanup-commands:
+  - /app/cleanup-BaseApp.sh
+modules:
+  - name: python-deps
+    buildsystem: simple
+    build-commands:
+      - pip3 install --verbose --exists-action=i --no-index --find-links="file://${PWD}" --prefix=${FLATPAK_DEST} --no-build-isolation pyyaml python-dotenv podman-compose
+    sources:
+      - type: file
+        url: https://files.pythonhosted.org/packages/05/8e/961c0007c59b8dd7729d542c61a4d537767a59645b82a0b521206e1e25c2/pyyaml-6.0.3.tar.gz
+        sha256: d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f
+      - type: file
+        url: https://files.pythonhosted.org/packages/74/26/2fbeedb218a787a5eea551c7532cac4e009f83d689dd2faa0d0353473f86/python_dotenv-1.2.4.tar.gz
+        sha256: f0d53e69935a851c0dcc78f3ab7aaccd8cabef0b92382b576b824212902873c0
+      - type: file
+        url: https://files.pythonhosted.org/packages/1f/80/a6ada19562b12ed466dac5c3e02aef5ed7c8d0881864d80e0d94d0dc71f5/podman_compose-1.6.0.tar.gz
+        sha256: c83fd9bcbaa635100d581ce52a7a4b712ee0d457481232aff392efe3ebc5a217
+
+  - name: freerdp
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DCMAKE_INSTALL_LIBDIR=lib
+      - -DWITH_BINARY_VERSIONING=ON
+      - -DWITH_CLIENT=ON
+      - -DWITH_CLIENT_SDL=OFF
+      - -DWITH_X11=ON
+      - -DWITH_WAYLAND=OFF
+      - -DWITH_SERVER=OFF
+      - -DWITH_SAMPLE=OFF
+      - -DWITH_PROXY=OFF
+      - -DWITH_SHADOW=OFF
+      - -DWITH_PULSE=ON
+      - -DWITH_OPUS=ON
+      - -DWITH_FREERDP_DEPRECATED_COMMANDLINE=ON
+      - -DWITH_FFMPEG=OFF
+      - -DWITH_SWSCALE=OFF
+      - -DWITH_DSP_FFMPEG=OFF
+      - -DWITH_CUPS=OFF
+      - -DWITH_PCSC=OFF
+      - -DWITH_PKCS11=OFF
+      - -DWITH_KRB5=OFF
+      - -DWITH_FUSE=OFF
+      - -DWITH_AAD=OFF
+      - -DWITH_WEBVIEW=OFF
+      - -DWITH_SSO_MIB=OFF
+      - -DWITH_URIPARSER=OFF
+      - -DWITH_SDL_IMAGE_DIALOGS=OFF
+      - -DWITH_MANPAGES=OFF
+      - -DBUILD_TESTING=OFF
+      - -DWITH_INTERNAL_MD4=ON
+      - -DWITH_INTERNAL_MD5=ON
+      - -DWITH_INTERNAL_RC4=ON
+      - -DCHANNEL_URBDRC=OFF
+      - -DCHANNEL_RDPECAM_CLIENT=OFF
+      - -DCHANNEL_TSMF=OFF
+    cleanup:
+      - /include
+      - /lib/cmake
+      - /lib/pkgconfig
+      - /share/man
+      - /share/doc
+    post-install:
+      - test -x ${FLATPAK_DEST}/bin/xfreerdp3
+    sources:
+      - type: archive
+        url: https://github.com/FreeRDP/FreeRDP/releases/download/3.32.1/freerdp-3.32.1.tar.gz
+        sha256: 3021cf8848efbd0064664e187cb61e6101e4e74a4d8ffb495d9f7715e22d67de
+
+  - name: linoffice
+    buildsystem: simple
+    build-commands:
+      - |
+        set -eu
+        install -d /app/bin \
+          /app/share/applications \
+          /app/share/icons/hicolor/scalable/apps \
+          /app/share/metainfo \
+          /app/share/licenses/linoffice
+        cp -a apps config gui lib /app/
+        install -m 0755 linoffice.sh setup.sh uninstall.sh /app/
+        install -m 0644 updater.py /app/updater.py
+        install -m 0644 LICENSE /app/share/licenses/linoffice/LICENSE
+        rm -f /app/config/compose.yaml \
+          /app/config/linoffice.conf \
+          /app/config/oem/registry/regional_settings.reg
+        find /app -depth -type d -name __pycache__ -exec rm -rf {} +
+        cat > /app/bin/linoffice <<'EOF'
+        #!/bin/sh
+        exec /app/linoffice.sh "$@"
+        EOF
+        cat > /app/bin/linoffice-gui <<'EOF'
+        #!/bin/sh
+        exec python3 /app/gui/linoffice.py "$@"
+        EOF
+        cat > /app/bin/podman <<'EOF'
+        #!/bin/sh
+        # Host Podman. Skip --directory for sandbox-only paths such as /app:
+        # flatpak-spawn fails when that directory does not exist on the host.
+        # The XDG config directory does exist on the host and must be kept.
+        dir=$PWD
+        case $dir in
+            /app|/app/*|/usr|/usr/*)
+                dir=
+                ;;
+        esac
+        if [ -n "$dir" ]; then
+            exec flatpak-spawn --host --directory="$dir" podman "$@"
+        fi
+        exec flatpak-spawn --host podman "$@"
+        EOF
+        chmod 0755 /app/bin/linoffice /app/bin/linoffice-gui /app/bin/podman
+        app_id=io.github.eylenburg.LinOffice
+        # The Office templates are CRLF. Exported desktop files need LF, and
+        # Categories has to end with a semicolon.
+        sed \
+          -e 's/\r$//' \
+          -e 's|^Exec=.*|Exec=linoffice-gui|' \
+          -e "s|^Icon=.*|Icon=${app_id}|" \
+          -e 's|^Categories=Office$|Categories=Office;|' \
+          apps/desktop/linoffice.desktop \
+          > "/app/share/applications/${app_id}.desktop"
+        for app in excel word powerpoint onenote outlook; do
+          sed \
+            -e 's/\r$//' \
+            -e 's|^Exec=/PATH/linoffice.sh |Exec=linoffice |' \
+            -e "s|^Icon=.*|Icon=${app_id}.${app}|" \
+            -e 's|^Categories=Office$|Categories=Office;|' \
+            "apps/desktop/${app}.desktop" \
+            > "/app/share/applications/${app_id}.${app}.desktop"
+          install -m 0644 "apps/${app}/icon.svg" \
+            "/app/share/icons/hicolor/scalable/apps/${app_id}.${app}.svg"
+        done
+        install -m 0644 .flatpak/linoffice.svg \
+          "/app/share/icons/hicolor/scalable/apps/${app_id}.svg"
+        install -m 0644 .flatpak/appdata.xml \
+          "/app/share/metainfo/${app_id}.metainfo.xml"
+    sources:
+      - type: dir
+        path: ..

@@ -359,13 +359,13 @@ function check_requirements() {
     # Check if computer supports virtualization
     print_info "Checking virtualization support"
 
-    if ! command -v lscpu &> /dev/null; then
-        exit_with_error "lscpu command not found. Please install util-linux package."
-    fi
-
-    # Check for virtualization support
-    if lscpu | grep -qiE 'virtualization|vmx|svm'; then
+    if command -v lscpu &> /dev/null && lscpu | grep -qiE 'virtualization|vmx|svm'; then
         echo "Virtualization is supported."
+    elif [[ -n "${FLATPAK_ID:-}" ]] && grep -qE 'vmx|svm' /proc/cpuinfo; then
+        # The KDE runtime may not ship lscpu. CPU flags are still visible here.
+        echo "Virtualization is supported."
+    elif ! command -v lscpu &> /dev/null; then
+        exit_with_error "lscpu command not found. Please install util-linux package."
     else
         exit_with_error "CPU virtualization not supported or not enabled.
         
@@ -378,8 +378,17 @@ function check_requirements() {
         4. If you can't find these options, your CPU may not support virtualization"
     fi
 
-    # Additional check for KVM support
-    if [ ! -e /dev/kvm ]; then
+    # Additional check for KVM support. Inside Flatpak, /dev/kvm belongs to the
+    # host: Podman is the host binary, and this sandbox does not get the device.
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        flatpak-spawn --host test -e /dev/kvm
+        kvm_present=$?
+    elif [ -e /dev/kvm ]; then
+        kvm_present=0
+    else
+        kvm_present=1
+    fi
+    if [ "$kvm_present" -ne 0 ]; then
         exit_with_error "KVM device not available. Virtualization may not be enabled in BIOS.
         
     HOW TO FIX:
@@ -686,7 +695,12 @@ function check_requirements() {
     # Check for various potential Podman problems
     # Check subUID/subGID mappings as some users had problems here
     print_info "Checking subUID/subGID mappings"
-    if ! grep -q "^$(whoami):" /etc/subuid || ! grep -q "^$(whoami):" /etc/subgid; then
+    # Inside Flatpak, /etc is the runtime image. Host Podman reads the host files.
+    subuid_grep=(grep)
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        subuid_grep=(flatpak-spawn --host grep)
+    fi
+    if ! "${subuid_grep[@]}" -q "^$(whoami):" /etc/subuid || ! "${subuid_grep[@]}" -q "^$(whoami):" /etc/subgid; then
         exit_with_error "Missing subUID/subGID mappings for the user.
         HOW TO FIX:
         1. Run: sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $(whoami)
@@ -1560,6 +1574,14 @@ function check_success() {
 }
 
 function desktop_files() {
+    # Flatpak exports launchers from /app/share/applications. Files written into
+    # the sandbox applications directory are not visible on the host, and an
+    # Exec=/app line written into the real home directory would not run there.
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        print_info "Flatpak already exports the LinOffice launchers. Not writing .desktop files into the home directory."
+        return 0
+    fi
+
     print_step "8" "Installing .desktop files (app launchers)"
     
     # Check if required directories exist

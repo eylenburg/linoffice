@@ -37,6 +37,9 @@ readonly CONFIG_PATH="$LINOFFICE_CONF_FILE"
 readonly COMPOSE_PATH="$LINOFFICE_COMPOSE_FILE"
 # Extra FreeRDP share. Filled in after linoffice.conf is loaded so RDP_FLAGS cannot drop it.
 LINOFFICE_DRIVE_ARGS=()
+# Outside Flatpak, FreeRDP runs inside the rootless Podman netns.
+# waGetFreeRDPCommand clears this when FLATPAK_ID is set.
+LINOFFICE_FREERDP_WRAP=(podman unshare --rootless-netns)
 
 # MULTI-INSTANCE COORDINATION - NEW
 readonly INSTANCE_ID="${RANDOM}_$$"
@@ -709,6 +712,16 @@ function waGetFreeRDPCommand() {
         fi
     fi
 
+    # Inside Flatpak, FreeRDP is the bundled binary and the sandbox shares the
+    # host network namespace. rootlessport listens on 127.0.0.1 there, which is
+    # the same path setup.sh already uses. Entering the Podman netns would
+    # require FreeRDP to be installed on the host.
+    if [[ -n "${FLATPAK_ID:-}" ]]; then
+        LINOFFICE_FREERDP_WRAP=()
+    else
+        LINOFFICE_FREERDP_WRAP=(podman unshare --rootless-netns)
+    fi
+
     if command -v "${FREERDP_COMMAND[0]}" &>/dev/null || \
     [ "${FREERDP_COMMAND[*]}" = "flatpak run --command=xfreerdp com.freerdp.FreeRDP" ]; then
         dprint "Using FreeRDP command '${FREERDP_COMMAND[*]}'."
@@ -977,7 +990,7 @@ function waRunCommand() {
 
         # Open Windows RDP session.
         dprint "WINDOWS"
-        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+        "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
             /scale:$RDP_SCALE \
@@ -999,7 +1012,7 @@ function waRunCommand() {
     elif [ "$1" = "manual" ]; then
         # Open specified application.
         dprint "MANUAL: ${2}"
-        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+        "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
             /scale:$RDP_SCALE \
@@ -1019,7 +1032,7 @@ function waRunCommand() {
     elif [ "$1" = "update" ]; then
         # Run the script
         dprint "UPDATE"
-        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+        "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
             /scale:$RDP_SCALE \
@@ -1040,7 +1053,7 @@ function waRunCommand() {
     elif [ "$1" = "registry_override" ]; then
         # Run the script
         dprint "UPDATE"
-        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+        "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
             /scale:$RDP_SCALE \
@@ -1061,7 +1074,7 @@ function waRunCommand() {
     elif [ "$1" = "internet_off" ]; then
         # Run the script
         dprint "UPDATE"
-        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+        "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
             /scale:$RDP_SCALE \
@@ -1082,7 +1095,7 @@ function waRunCommand() {
     elif [ "$1" = "internet_on" ]; then
         # Run the script
         dprint "UPDATE"
-        podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+        "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
             /scale:$RDP_SCALE \
@@ -1123,7 +1136,7 @@ function waRunCommand() {
         if [ -z "$2" ]; then
             # No file path specified.
             dprint "LAUNCHING OFFICE APP: $FULL_NAME"
-            podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+            "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
                 /u:$RDP_USER \
                 /p:$RDP_PASS \
                 /scale:$RDP_SCALE \
@@ -1155,7 +1168,7 @@ function waRunCommand() {
             dprint "WINDOWS_FILE_PATH: ${FILE_PATH}"
 
             dprint "LAUNCHING OFFICE APP WITH FILE: $FULL_NAME"
-            podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+            "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
                 /u:$RDP_USER \
                 /p:$RDP_PASS \
                 /scale:$RDP_SCALE \
@@ -1367,7 +1380,7 @@ EOF
     echo "Copying OEM scripts into the Windows VM (C:\\OEM and %windir%\\TimeSync.ps1)."
     echo "This does not reinstall Windows."
     log="$LINOFFICE_DATA_DIR/oem-refresh.log"
-    podman unshare --rootless-netns "${FREERDP_COMMAND[@]}" \
+    "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
         /u:"$RDP_USER" \
         /p:"$RDP_PASS" \
         /cert:ignore \
