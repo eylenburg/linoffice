@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Install LinOffice</title>
+</head>
+<body>
+  <h1>Install LinOffice</h1>
+  <p>Opening Discover or GNOME Software. Allow your browser to open that application.</p>
+  <p><a id="open" href="flatpak+https://eylenburg.github.io/linoffice/io.github.eylenburg.LinOffice.flatpakref">Open the software center</a></p>
+  <p>If nothing opens, download <a href="https://eylenburg.github.io/linoffice/io.github.eylenburg.LinOffice.flatpakref">io.github.eylenburg.LinOffice.flatpakref</a> and open that file. The software center adds the LinOffice repository and installs LinOffice. You also need Podman.</p>
+  <script>
+    location.replace(document.getElementById("open").href);
+  </script>
+</body>
+</html>

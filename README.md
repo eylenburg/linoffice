@@ -1,10 +1,10 @@
 # LinOffice - Microsoft Office launcher for Linux
 
 <p align="center">
-  <a href="https://eylenburg.github.io/linoffice/io.github.eylenburg.LinOffice.flatpakref"><img alt="Click here to install LinOffice with Flatpak" height="64" src="https://img.shields.io/badge/Click%20here%20to%20install-Flatpak-0D597F?style=for-the-badge&logo=flatpak&logoColor=white"></a>
+  <a href="https://eylenburg.github.io/linoffice/install.html"><img alt="Click here to install LinOffice with Flatpak" height="64" src="https://img.shields.io/badge/Click%20here%20to%20install-Flatpak-0D597F?style=for-the-badge&logo=flatpak&logoColor=white"></a>
 </p>
 
-<p align="center">The button installs LinOffice with Flatpak. It opens in GNOME Software, KDE Discover, or another Flatpak software center. You also need <a href="#flatpak">Podman</a>.</p>
+<p align="center">The button installs LinOffice with Flatpak. Your browser asks to open Discover or GNOME Software. Allow that prompt. You also need <a href="#flatpak">Podman</a>.</p>
 
 **LinOffice enables you to run Microsoft Office applications in Linux.** In the background, it runs a virtual machine with Windows and Office installed which is then accessed via FreeRDP. LinOffice's aim is to be a "1-click" setup for Microsoft Office in Linux.
 
@@ -93,7 +93,7 @@ The Flatpak includes FreeRDP, podman-compose, Python, and PySide6. Two things st
 
 Office itself is not inside the Flatpak. The first time you open LinOffice, it downloads Windows and Microsoft Office (about 8 GB) and installs them. You need your own Office license.
 
-**Click the button at the top of this page.** The same file is [io.github.eylenburg.LinOffice.flatpakref](https://eylenburg.github.io/linoffice/io.github.eylenburg.LinOffice.flatpakref). Your software center adds the LinOffice repository and installs LinOffice.
+**Click the button at the top of this page**, or open the [install page](https://eylenburg.github.io/linoffice/install.html). Your browser asks to open Discover or GNOME Software, which adds the LinOffice repository and installs LinOffice. If the browser only downloads a file, open [io.github.eylenburg.LinOffice.flatpakref](https://eylenburg.github.io/linoffice/io.github.eylenburg.LinOffice.flatpakref).
 
 From a terminal, adding the repository and installing LinOffice is one command:
 
@@ -524,6 +524,7 @@ These are the files that are part of LinOffice and what they do. Paths are from 
 - `.flatpak/io.github.eylenburg.LinOffice.yml`: Flatpak manifest. It bundles FreeRDP, podman-compose, and PySide6, and calls Podman on the host.
 - `.flatpak/io.github.eylenburg.LinOffice.metainfo.xml`: AppStream metadata for the Flatpak.
 - `.flatpak/io.github.eylenburg.LinOffice.flatpakref`: One-step install file. The publish workflow writes it from the signing key and publishes it at `https://eylenburg.github.io/linoffice/io.github.eylenburg.LinOffice.flatpakref`. It names the app, the `master` branch, and that repository.
+- `.flatpak/install.html`: Page linked from the install buttons. The publish workflow copies it to `https://eylenburg.github.io/linoffice/install.html`. That page sends the browser to `flatpak+https://` for the `.flatpakref`, which Discover and GNOME Software open directly.
 - `.flatpak/icons/`: Icons exported with the Flatpak.
 - `.github/workflows/flatpak-repo.yml`: Builds the Flatpak on a version tag or a manual run, and publishes the repository to GitHub Pages.
 

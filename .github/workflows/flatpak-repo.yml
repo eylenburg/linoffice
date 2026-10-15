@@ -69,10 +69,14 @@ jobs:
           gpg-sign: ${{ steps.gpg.outputs.fingerprint }}
           upload-bundles: true
           upload-pages-artifact: true
-          # The previous step writes this file. Flatter copies it to the
-          # Pages root by basename:
+          # Copied to the Pages root by basename. install.html sends the
+          # browser to flatpak+https for the ref, which Discover and
+          # GNOME Software open directly:
+          # https://eylenburg.github.io/linoffice/install.html
           # https://eylenburg.github.io/linoffice/io.github.eylenburg.LinOffice.flatpakref
-          upload-pages-includes: .flatpak/io.github.eylenburg.LinOffice.flatpakref
+          upload-pages-includes: |
+            .flatpak/io.github.eylenburg.LinOffice.flatpakref
+            .flatpak/install.html
           cache-key: flatter-v2
 
       - name: Download bundle artifact
