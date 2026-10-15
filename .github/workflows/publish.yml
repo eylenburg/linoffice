@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write          # required to attach the .flatpak to the Release
+  contents: write
   packages: write
   pages: write
   id-token: write
@@ -16,34 +16,34 @@ jobs:
   build-bundle:
     runs-on: ubuntu-latest
     container:
-        image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.11
-        options: --privileged
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.11
+      options: --privileged
     steps:
-        - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-        - name: Add Flathub remote
+      - name: Add Flathub remote
         run: |
-            flatpak remote-add --user --if-not-exists flathub \
+          flatpak remote-add --user --if-not-exists flathub \
             https://dl.flathub.org/repo/flathub.flatpakrepo
 
-        - name: Build .flatpak bundle
+      - name: Build .flatpak bundle
         run: |
-            flatpak-builder --user --install-deps-from=flathub --force-clean \
+          flatpak-builder --user --install-deps-from=flathub --force-clean \
             --repo=repo build-dir .flatpak/io.github.eylenburg.LinOffice.yml
-            flatpak build-bundle repo linoffice.flatpak \
+          flatpak build-bundle repo linoffice.flatpak \
             io.github.eylenburg.LinOffice stable
 
-        - name: Upload bundle artifact
+      - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
         with:
-            name: linoffice-x86_64
-            path: linoffice.flatpak
+          name: linoffice-x86_64
+          path: linoffice.flatpak
 
-        - name: Attach to GitHub Release
+      - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-            files: linoffice.flatpak
+          files: linoffice.flatpak
 
   publish:
     needs: build-bundle
@@ -56,4 +56,3 @@ jobs:
       branch: stable
     secrets:
       gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
-      # gpg-private-key-passphrase: ${{ secrets.GPG_PRIVATE_KEY_PASSPHRASE }}
