@@ -36,6 +36,7 @@ jobs:
         run: |
           flatpak-builder --user --install-deps-from=flathub --force-clean \
             --disable-rofiles-fuse \
+            --default-branch=stable \
             --repo=repo build-dir .flatpak/io.github.eylenburg.LinOffice.yml
           flatpak build-bundle repo linoffice.flatpak \
             io.github.eylenburg.LinOffice stable
