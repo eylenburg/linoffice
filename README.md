@@ -277,8 +277,10 @@ The **Microsoft Activation Scripts (MAS)** will also work if you have, let's say
 
 # Troubleshooting
 
+### Problems with the setup 
+
 <details>
-<summary><strong>Problems with the setup</strong></summary>
+<summary><strong>See here for possible solutions</strong></summary>
 
 Work through these checks in order. Stop as soon as Word and Excel open from your application menu.
 
