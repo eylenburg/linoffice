@@ -50,6 +50,7 @@ jobs:
           gpg-sign: ${{ steps.gpg.outputs.fingerprint }}
           upload-bundles: true
           upload-pages-artifact: true
+          cache-key: flatter-v2
 
       - name: Download bundle artifact
         uses: actions/download-artifact@v4
