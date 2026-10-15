@@ -79,6 +79,19 @@ All Linux distributions are supported.
 - x86_64 CPU (ARM is currently not supported, although it would be possible)
 - Fast Internet connection as you will need to download several GB from Micrsoft
 
+## Flatpak
+
+The Flatpak version comes with most dependencies bundled. You only need to have **`podman`** installed on your system, and of course `flatpak`.
+
+[![Install LinOffice](https://img.shields.io/badge/Install-LinOffice-blue?logo=flatpak)](https://eylenburg.github.io/linoffice/io.github.eylenburg.LinOffice.flatpakref)
+
+To download and install LinOffice as a Flatpak, click on the button above if you have Discover or GNOME Software installed, or alternatively run this command:
+
+```
+flatpak remote-add --if-not-exists --user linoffice https://eylenburg.github.io/linoffice/index.flatpakrepo && flatpak install --user linoffice io.github.eylenburg.LinOffice
+
+```
+
 ## Quickinstall
 
 Note: if you want to customise the installation or Windows version, have a look at the [manual installation](#manual-install).
