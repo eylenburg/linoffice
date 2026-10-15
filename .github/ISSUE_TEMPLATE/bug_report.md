@@ -25,8 +25,8 @@ If applicable, add screenshots to help explain your problem.
 - Linux distribution:
 - Desktop environment:
 - Wayland or X11:
-- How did you install Podman-Compose (e.g. from repo or via pip)
-- How did you install FreeRDP (e.g. from repo or as Flatpak)
+- How did you install LinOffice (Flatpak, manual install, legacy quickstart script):
+- If you did NOT install the Flatpak version of LinOffice, how did you install Podman-Compose (e.g. from your distro's repo or via pip) and FreeRDP (e.g. from your distro's repo or as Flatpak from Flathub):
 
 **Additional context**
 Add any other context about the problem here.
