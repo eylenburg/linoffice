@@ -284,13 +284,20 @@ The **Microsoft Activation Scripts (MAS)** will also work if you have, let's say
 
 Work through these checks in order. Stop as soon as Word and Excel open from your application menu.
 
-Run `./setup.sh` from the folder that contains it. On an install from this repository that is usually `~/.local/bin/linoffice`. Logs are in the LinOffice data directory. On an existing install that is still `~/.local/share/linoffice`. On a new install it is `${XDG_DATA_HOME:-~/.local/share}/linoffice`.
+Check these log files for errors:
+`windows_install.log`, `setup_output.log`, and `setup_progress.log`, which are saved in:
+
+- Flatpak: `~/.var/app/io.github.eylenburg.LinOffice/data/linoffice/`
+- Manual install or legacy quickstart script: `~/.local/share/linoffice/`
+
+`setup.log`, `setup_office.log`, and `setup_rdp.log` are additional log files found in `C:\OEM` inside the Windows virtual machine. 
+
 
 #### 1. Can you log in to the virtual machine?
 
 Open http://127.0.0.1:8006 in a browser. The password is `MyWindowsPassword`.
 
-- **The page does not load, or Windows will not let you log in.** Read `windows_install.log` in the data directory. That log is from the Windows download and install.
+- **The page does not load, or Windows will not let you log in.** Read `windows_install.log` in the Linux log folder above. That log is from the Windows download and install.
 - **You can log in, but Microsoft Office is not installed.** Install Office yourself inside the virtual machine. Then create an empty file, not a folder, named `success` in `C:\OEM`. Sign out from the Start menu. Do not shut Windows down.
 - **You can log in and Office is installed.** Sign out. A login in the browser blocks RDP until you sign out.
 
@@ -329,7 +336,7 @@ If a window does not open, the problem is the connection or the Office install. 
 
 #### 3. Office opens from FreeRDP, but setup still stops
 
-1. Open `setup_progress.log` in the data directory.
+1. Open `setup_progress.log` in the Linux log folder above.
 2. If that file does not already contain the line `office_installed`, add it at the end.
 3. Run `./setup.sh --desktop`.
 
@@ -339,8 +346,8 @@ Word, Excel, and LinOffice should then be in your application menu. A Flatpak al
 
 Please [open a bug report](https://github.com/eylenburg/linoffice/issues) and include:
 
-- `windows_install.log` and `setup_output.log` from the data directory
-- `setup.log`, `setup_office.log`, and `setup_rdp.log` from `C:\OEM` in the virtual machine, if they exist. The browser session does not share the clipboard with Linux, so a screenshot is enough.
+- `windows_install.log` and `setup_output.log`. For the Flatpak, these are in `~/.var/app/io.github.eylenburg.LinOffice/data/linoffice/`. For a manual install or legacy quickstart install, they are most likely in `~/.local/share/linoffice/`. 
+- `setup.log`, `setup_office.log`, and `setup_rdp.log` from `C:\OEM` in the virtual machine, if they exist. That folder is the same for the Flatpak and for an install from this repository. The browser session does not share the clipboard with Linux, so a screenshot is enough.
 - LinOffice version, Linux distribution, desktop environment, Wayland or X11, and how Podman, podman-compose, and FreeRDP were installed
 
 </details>
@@ -491,7 +498,7 @@ These are the files that are part of LinOffice and what they do. Paths are from 
 
 - **App files:** the folder that contains `linoffice.sh`. An install from this repository is usually `~/.local/bin/linoffice`. A Flatpak keeps the application under `/app`, which is removed with the Flatpak itself.
 - **Config:** `compose.yaml`, `linoffice.conf`, and the working `oem/` directory. A new install uses `${XDG_CONFIG_HOME:-~/.config}/linoffice`. If `config/compose.yaml` or `config/linoffice.conf` already exists next to `linoffice.sh`, that folder keeps being used.
-- **Data:** logs, setup progress, `registry_override.conf`, and the suspend marker. If `~/.local/share/linoffice` already exists, it stays the data directory. Otherwise the directory is `${XDG_DATA_HOME:-~/.local/share}/linoffice`.
+- **Data:** `windows_install.log`, `setup_output.log`, `setup_progress.log`, `registry_override.conf`, and the suspend marker. The Flatpak writes these in `~/.var/app/io.github.eylenburg.LinOffice/data/linoffice/`. An install from this repository writes them in `~/.local/share/linoffice/`. When `~/.local/share/linoffice` already exists, LinOffice keeps using it, including from the Flatpak.
 - **Desktop files:** `${XDG_DATA_HOME:-~/.local/share}/applications`, unless `LINOFFICE_APPLICATIONS_DIR` is set. The Flatpak exports its own launchers and does not write these files.
 - **Windows VM:** Podman project name `linoffice`, container `LinOffice`, volume `linoffice_data` (`podman rm -f LinOffice && podman volume rm linoffice_data`).
 - Path overrides: `LINOFFICE_PREFIX`, `LINOFFICE_CONFIG_DIR`, `LINOFFICE_DATA_DIR`, `LINOFFICE_APPLICATIONS_DIR`. `lib/paths.sh` and `lib/paths.py` resolve them.
