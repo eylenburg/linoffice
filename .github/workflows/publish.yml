@@ -26,6 +26,12 @@ jobs:
           flatpak remote-add --user --if-not-exists flathub \
             https://dl.flathub.org/repo/flathub.flatpakrepo
 
+      - name: Prepare Flatpak environment
+        run: |
+          dbus-uuidgen > /etc/machine-id
+          mkdir -p /var/lib/dbus
+          ln -sf /etc/machine-id /var/lib/dbus/machine-id
+
       - name: Build .flatpak bundle
         run: |
           flatpak-builder --user --install-deps-from=flathub --force-clean \
