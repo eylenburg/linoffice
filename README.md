@@ -272,7 +272,7 @@ After that, `linoffice` means the same thing as `./linoffice.sh`.
 
 You will need an Office 2024 license key or Office 365 subscription to use Office. During the first 5 days after installation, you can use Office without activation by clicking on "I have a product key" and then on the "X" of the window where you are supposed to enter your product key.
 
-The **Microsoft Activation Scripts (MAS)** will also work if you have, let's say, trouble with activation - just run `./linoffice.sh manual powershell.exe` from the script's directory to open a Powershell window where you can then paste the command to run MAS. 
+The **Microsoft Activation Scripts (MAS)** will also work if you have, let's say, trouble with activation. You can start Powershell from the "Tools" menu.
 
 
 # Troubleshooting
