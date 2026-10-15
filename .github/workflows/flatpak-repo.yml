@@ -32,6 +32,10 @@ jobs:
         run: |
           flatpak install -y --user flathub io.qt.PySide.BaseApp//6.11
 
+      - name: Fix gpg2 symlink
+        run: |
+          ln -sf $(which gpg) /usr/local/bin/gpg2 || ln -sf $(which gpg) /usr/bin/gpg2
+
       - name: Import GPG key
         id: gpg
         uses: crazy-max/ghaction-import-gpg@v6
