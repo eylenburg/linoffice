@@ -3,25 +3,52 @@ name: Publish Flatpak
 on:
   push:
     tags:
-      - 'v*'          # triggers on v3.0.0, v3.0.1, etc.
-  workflow_dispatch:   # optional: allow manual runs
+      - 'v*'
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write          # required to attach the .flatpak to the Release
   packages: write
   pages: write
   id-token: write
 
 jobs:
+  build-bundle:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub/flatpak-builder:stable
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build .flatpak bundle
+        run: |
+          flatpak-builder --user --install-deps-from=flathub --force-clean \
+            --repo=repo build-dir .flatpak/io.github.eylenburg.LinOffice.yml
+          flatpak build-bundle repo linoffice.flatpak \
+            io.github.eylenburg.LinOffice stable
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linoffice-x86_64
+          path: linoffice.flatpak
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: linoffice.flatpak
+
   publish:
+    needs: build-bundle
     uses: aetherpak/actions/.github/workflows/publish.yml@v3
     with:
-      manifest-path: .flatpak/io.github.eylenburg.LinOffice.yml
-      arches: x86_64          # add aarch64 if you want both
-      signing: gpg            # require signing
-      remote-name: linoffice   # optional: friendlier remote name (default is eylenburg-linoffice)
-      branch: stable          # default is already "stable" on tags
-      run-linter: false
+      prebuilt-bundle-artifact: linoffice-{arch}
+      arches: x86_64
+      signing: gpg
+      remote-name: linoffice
+      branch: stable
     secrets:
       gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
       # gpg-private-key-passphrase: ${{ secrets.GPG_PRIVATE_KEY_PASSPHRASE }}
