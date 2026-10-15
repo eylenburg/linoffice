@@ -28,13 +28,15 @@ jobs:
           flatpak remote-add --user --if-not-exists flathub \
             https://dl.flathub.org/repo/flathub.flatpakrepo
 
+      - name: Install PySide BaseApp
+        run: |
+          flatpak install -y --user flathub io.qt.PySide.BaseApp//6.11
+
       - name: Import GPG key
         id: gpg
         uses: crazy-max/ghaction-import-gpg@v6
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          # Uncomment the next line only if your key has a passphrase
-          # passphrase: ${{ secrets.GPG_PRIVATE_KEY_PASSPHRASE }}
 
       - name: Build Flatpak repository
         uses: andyholmes/flatter@v1
