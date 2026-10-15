@@ -46,10 +46,13 @@
       </font>
      </property>
      <property name="styleSheet">
-      <string notr="true">background-color: #121212; color: #ffffff; border: 1px solid #333;</string>
+      <string notr="true">background-color: #121212; color: #ffffff; border: 1px solid #333; selection-background-color: #264f78; selection-color: #ffffff;</string>
      </property>
      <property name="readOnly">
       <bool>true</bool>
+     </property>
+     <property name="textInteractionFlags">
+      <set>Qt::TextInteractionFlag::TextSelectableByKeyboard|Qt::TextInteractionFlag::TextSelectableByMouse</set>
      </property>
      <property name="acceptRichText">
       <bool>true</bool>
@@ -57,14 +60,28 @@
     </widget>
    </item>
    <item>
-    <widget class="QPushButton" name="abortButton">
-     <property name="text">
-      <string>Abort installation</string>
-     </property>
-     <property name="icon">
-      <iconset theme="QIcon::ThemeIcon::ProcessStop"/>
-     </property>
-    </widget>
+    <layout class="QHBoxLayout" name="installButtonsLayout">
+     <item>
+      <widget class="QPushButton" name="copyOutputButton">
+       <property name="text">
+        <string>Copy output</string>
+       </property>
+       <property name="icon">
+        <iconset theme="QIcon::ThemeIcon::EditCopy"/>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="abortButton">
+       <property name="text">
+        <string>Abort installation</string>
+       </property>
+       <property name="icon">
+        <iconset theme="QIcon::ThemeIcon::ProcessStop"/>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </item>
   </layout>
  </widget>

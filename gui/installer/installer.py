@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtGui import QTextCursor, QDesktopServices
-from PySide6.QtCore import QFile, QTimer, QProcess, QIODevice, QUrl
+from PySide6.QtCore import Qt, QFile, QTimer, QProcess, QIODevice, QUrl
 
 def strip_ansi_codes(text):
     ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
@@ -212,6 +212,16 @@ class Wizard(QWidget):
     def start_installation(self):
         self.progress_bar = self.install_page.findChild(QProgressBar, "progressBar")
         self.terminal_output = self.install_page.findChild(QTextEdit, "terminalOutput")
+        self.terminal_output.setReadOnly(True)
+        self.terminal_output.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        self.terminal_output.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        self.copy_output_button = self.install_page.findChild(QPushButton, "copyOutputButton")
+        if self.copy_output_button:
+            self.copy_output_button.clicked.connect(self.copy_output)
 
         self.abort_button = self.install_page.findChild(QPushButton, "abortButton")
         if self.abort_button:
@@ -230,16 +240,30 @@ class Wizard(QWidget):
         self.process.finished.connect(self.installation_finished)
         self.process.start()
 
+    def copy_output(self):
+        text = self.terminal_output.toPlainText()
+        if text:
+            QApplication.clipboard().setText(text)
+
     def handle_output(self):
+        scrollbar = self.terminal_output.verticalScrollBar()
+        follow_output = (
+            not self.terminal_output.textCursor().hasSelection()
+            and scrollbar.value() >= scrollbar.maximum() - 4
+        )
+
         while self.process.canReadLine():
             line = bytes(self.process.readLine()).decode(errors="ignore").rstrip()
 
             # convert to HTML for display
             html_line = ansi_to_html(line)
-            self.terminal_output.insertHtml(html_line + '<br>')
+            cursor = QTextCursor(self.terminal_output.document())
+            cursor.movePosition(QTextCursor.End)
+            cursor.insertHtml(html_line + '<br>')
 
-            # Auto-scroll to the bottom
-            self.terminal_output.moveCursor(QTextCursor.End)
+            # Auto-scroll only when the user is not selecting text
+            if follow_output:
+                self.terminal_output.moveCursor(QTextCursor.End)
 
             # strip ANSI for regex matching
             clean_line = strip_ansi_codes(line)
