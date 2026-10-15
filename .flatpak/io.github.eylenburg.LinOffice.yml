@@ -173,7 +173,7 @@ modules:
           install -m 0644 ".flatpak/icons/${size}.png" \
             "/app/share/icons/hicolor/${size}x${size}/apps/${app_id}.png"
         done
-        install -m 0644 .flatpak/appdata.xml \
+        install -m 0644 .flatpak/io.github.eylenburg.LinOffice.metainfo.xml \
           "/app/share/metainfo/${app_id}.metainfo.xml"
     sources:
       - type: dir

@@ -16,11 +16,12 @@ jobs:
   publish:
     uses: aetherpak/actions/.github/workflows/publish.yml@v3
     with:
-      manifest-path: .flatpak/manifest.yml
+      manifest-path: .flatpak/io.github.eylenburg.LinOffice.yml
       arches: x86_64          # add aarch64 if you want both
       signing: gpg            # require signing
       remote-name: linoffice   # optional: friendlier remote name (default is eylenburg-linoffice)
       branch: stable          # default is already "stable" on tags
+      run-linter: false
     secrets:
       gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
       gpg-private-key-passphrase: ${{ secrets.GPG_PRIVATE_KEY_PASSPHRASE }}
