@@ -31,6 +31,7 @@ finish-args:
   - --filesystem=/run/media
   - --talk-name=org.freedesktop.Flatpak
 build-options:
+  no-debuginfo: true
   env:
     - BASEAPP_REMOVE_WEBENGINE=1
     - BASEAPP_DISABLE_NUMPY=1
