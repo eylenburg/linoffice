@@ -1,10 +1,10 @@
-# LinOffice - Microsoft Office launcher for Linux
-
 <p align="center">
   <a href="https://eylenburg.github.io/linoffice/install.html"><img alt="Click here to install LinOffice with Flatpak" height="64" src="https://img.shields.io/badge/Click%20here%20to%20install-Flatpak-0D597F?style=for-the-badge&logo=flatpak&logoColor=white"></a>
 </p>
 
-<p align="center">The button installs LinOffice with Flatpak. Your browser asks to open Discover or GNOME Software. Allow that prompt. You also need <a href="#flatpak">Podman</a>.</p>
+The button offers to install LinOffice as a Flatpak. Your browser will ask to open Discover or GNOME Software. Allow that prompt. **You also need [Podman](https://podman.io/docs/installation#installing-on-linux) installed on your system.**
+
+# LinOffice - Microsoft Office launcher for Linux
 
 **LinOffice enables you to run Microsoft Office applications in Linux.** In the background, it runs a virtual machine with Windows and Office installed which is then accessed via FreeRDP. LinOffice's aim is to be a "1-click" setup for Microsoft Office in Linux.
 
@@ -35,22 +35,21 @@ The project utilises [Winapps](https://github.com/winapps-org/winapps), [Dockur/
 - [x] Tidy Quick Access pane in Windows File Explorer
 - [x] Automatically debloats Windows and disables telemetry and ads, using [Win11Debloat](https://github.com/Raphire/Win11Debloat/)
 - [x] Troubleshooting functions e.g. force cleanup of Office lock files, recreate .desktop files for the Office apps, reboot the Windows container, container health check
+- [x] Flatpak version. It bundles most dependencies. Only Podman needs to be installed separately. See [Installation](#installation). 
 
 <details>
 <summary><strong>Planned features</strong></summary>
 
 ### Planned features
 
-- [ ] Logo to use for the GUI
 - [ ] Translations for the GUI
-- [x] Flatpak, published from this repository (not Flathub). It bundles FreeRDP, podman-compose, and PySide6. Podman stays installed on the system. See [Installation](#installation).
 - [ ] AppImage
 
 
 ### Nice to have but lower priority
 
 - [ ] ARM support (should be possible as both Windows and Office have ARM versions)
-- [ ] Support for non-core Office apps (e.g. Access, Publisher, Visio)
+- [ ] Better support for non-core Office apps (e.g. Access, Publisher, Visio)
 - [ ] Support for older Office versions (e.g. 2016, 2019, 2021)
 
 </details>
@@ -74,38 +73,36 @@ The project utilises [Winapps](https://github.com/winapps-org/winapps), [Dockur/
 
 # Installation
 
-All Linux distributions are supported. The button at the top of this page is the easiest install. The steps further down are for installing the files from this repository yourself.
-
 **Hardware requirements:**
 - Enough resources for the Windows virtual machine (up to 4 GB RAM, 64 GB storage, and 4 CPU cores). Setup checks for at least 8 GB RAM and 64 GB free storage before it continues.
 - Virtualization support (KVM)
 - An x86_64 CPU (ARM is not supported yet)
 - A fast Internet connection. Setup downloads several GB from Microsoft.
 
-## Flatpak
+## Option 1: Flatpak
 
-Use this unless you want to run LinOffice from a folder you downloaded yourself.
+This is the easiest way to install LinOffice, provided you have Flatpak installed on your system. If not, [see here](https://flathub.org/en/setup).
 
-The Flatpak includes FreeRDP, podman-compose, Python, and PySide6. Two things still have to be installed on your system:
+The Flatpak bundles various dependencies such as FreeRDP, podman-compose, Python, and PySide6. Two things still have to be installed on your system:
 
-- **Flatpak**, if it is not already there
-- **Podman**
+- [**Flatpak** itself](https://flathub.org/en/setup)
+- [**Podman**](https://podman.io/docs/installation#installing-on-linux)
 
-Office itself is not inside the Flatpak. The first time you open LinOffice, it downloads Windows and Microsoft Office (about 8 GB) and installs them. You need your own Office license.
+The first time you open LinOffice, it downloads Windows and Microsoft Office (about 8 GB) and installs them. You need your own Office license.
 
-**Click the button at the top of this page**, or open the [install page](https://eylenburg.github.io/linoffice/install.html). Your browser asks to open Discover or GNOME Software, which adds the LinOffice repository and installs LinOffice. If the browser only downloads a file, open [io.github.eylenburg.LinOffice.flatpakref](https://eylenburg.github.io/linoffice/io.github.eylenburg.LinOffice.flatpakref).
+<p align="center">
+  <a href="https://eylenburg.github.io/linoffice/install.html"><img alt="Click here to install LinOffice with Flatpak" height="64" src="https://img.shields.io/badge/Click%20here%20to%20install-Flatpak-0D597F?style=for-the-badge&logo=flatpak&logoColor=white"></a>
+</p>
 
-From a terminal, adding the repository and installing LinOffice is one command:
+**Click the button above**, or open the [install page](https://eylenburg.github.io/linoffice/install.html). Your browser asks to open Discover or GNOME Software, which adds the LinOffice repository and installs LinOffice. If the browser only downloads a file, open [io.github.eylenburg.LinOffice.flatpakref](https://eylenburg.github.io/linoffice/io.github.eylenburg.LinOffice.flatpakref).
+
+Alternatively, you can **install the LinOffice flatpak with one command**:
 
 ```bash
 flatpak remote-add --if-not-exists --user linoffice https://eylenburg.github.io/linoffice/index.flatpakrepo && flatpak install --user linoffice io.github.eylenburg.LinOffice
 ```
 
-Then open **LinOffice** from your application menu. The Office apps appear in the menu after setup finishes. The package already includes those launchers, so setup does not write extra `.desktop` files.
-
-Updates for the LinOffice application come from this Flatpak repository. See [Updating](#updating). Removing the Flatpak does not delete the Windows virtual machine. See [Uninstall](#uninstall).
-
-## Install from this repository
+## Option 2: Manual installation
 
 Do these steps in order. Step 3 is optional.
 
@@ -115,15 +112,13 @@ You need:
 
 - **Podman**
 - **podman-compose**
-- **FreeRDP 3** (the `xfreerdp3` command)
-- **Python 3** and **PySide6**, so the LinOffice window can run the setup
-
-On Debian and Ubuntu, PySide6 is split into extra packages. The commands below include `python3-pyside6.qtwidgets` and `python3-pyside6.qtuitools`, which the window needs in order to load its interface.
+- **FreeRDP 3**
+- **Python 3** and **PySide6** (for the GUI)
 
 >[!WARNING]
 >FreeRDP 3.23 does not work with LinOffice. If your distribution ships 3.23, downgrade to 3.22 or upgrade to a newer version.
 
-Copy the command for your distribution.
+Below are some distribution-specific commands to install the dependencies:
 
 **Debian 13 and newer**
 
@@ -137,15 +132,13 @@ sudo apt install podman podman-compose freerdp3-x11 python3 python3-pyside6 pyth
 sudo apt install podman podman-compose freerdp3-x11 python3 python3-pyside6 python3-pyside6.qtwidgets python3-pyside6.qtuitools
 ```
 
-FreeRDP 3 is available from Ubuntu 24.04. PySide6 is available from Ubuntu 24.10. On Ubuntu 24.04, install `podman`, `podman-compose`, and `freerdp3-x11` with `apt`, then install PySide6 [with pip](https://pip.pypa.io/en/stable/installation/). Debian 12 and Ubuntu older than 24.04 do not include FreeRDP 3. Use backports, or install FreeRDP from [Flathub](https://flathub.org/apps/com.freerdp.FreeRDP) and give that Flatpak access to your home folder.
-
 **Fedora**
 
 ```bash
 sudo dnf install podman podman-compose freerdp python3 python3-pyside6
 ```
 
-On Fedora Atomic (Silverblue, Kinoite, and similar), Podman and Python 3 are already installed. Run `rpm-ostree install podman-compose freerdp python3-pyside6`, then reboot.
+On Fedora Atomic (Silverblue, Kinoite, and similar), installing the Flatpak version of LinOffice is easier.
 
 **openSUSE**
 
@@ -159,89 +152,70 @@ sudo zypper install podman podman-compose freerdp python3 python3-pyside6
 sudo pacman -S --needed podman podman-compose freerdp python pyside6
 ```
 
-If a package is missing from your repositories, podman-compose and PySide6 can be installed [with pip](https://pip.pypa.io/en/stable/installation/). FreeRDP can be installed from [Flathub](https://flathub.org/apps/com.freerdp.FreeRDP). Give that Flatpak access to your home folder.
 
 ### 2. Download LinOffice
 
-This downloads the current repository and unpacks it to `~/.local/bin/linoffice`. It needs `curl` and `unzip`. It stops if that folder already exists, so it will not overwrite an install you already have.
+Download the zip from the [releases page](https://github.com/eylenburg/linoffice/releases), unpack it, and put the contents into `~/.local/bin/linoffice`.
 
-```bash
-mkdir -p "$HOME/.local/bin" && curl -fL "https://github.com/eylenburg/linoffice/archive/refs/heads/main.zip" -o /tmp/linoffice.zip && unzip -qo /tmp/linoffice.zip -d /tmp && rm -f /tmp/linoffice.zip && if [ -e "$HOME/.local/bin/linoffice" ]; then echo "Stop: $HOME/.local/bin/linoffice already exists. Move it aside, then run this again. The download is in /tmp/linoffice-main."; else mv /tmp/linoffice-main "$HOME/.local/bin/linoffice" && echo "LinOffice is in $HOME/.local/bin/linoffice"; fi
-```
-
-A tagged release is also fine. Download the zip from the [releases page](https://github.com/eylenburg/linoffice/releases), unpack it, and put the folder at `~/.local/bin/linoffice`.
 
 ### 3. Optional: change settings before the first start
 
 Skip this step to accept the defaults (Windows 11 Pro, 4 GB RAM, 4 CPU cores, 64 GB disk).
 
-If you do want to change something, edit the templates **before** you start LinOffice:
+If you do want to change something, edit the templates **before** you run the LinOffice setup:
 
 - `~/.local/bin/linoffice/config/compose.yaml.default` — Windows version, RAM, CPU cores, disk size
 - `~/.local/bin/linoffice/config/linoffice.conf.default` — display scaling, auto-suspend, extra FreeRDP flags
-
-The first start copies those templates into `~/.config/linoffice/`. After that, change `compose.yaml` and `linoffice.conf` in that folder. An older install that already has those files in `config/` next to `linoffice.sh` keeps using that folder.
 
 <details><summary><strong>Don't want to use Windows 11?</strong></summary>
 
 Windows 11 Pro is the default. Windows 10 is a bit snappier. To install it, replace `VERSION: "11"` with `VERSION: "10"` in `config/compose.yaml.default` before the first start.
 
-Mainstream support for Windows 10 ended in October 2025. After installation you can use Microsoft Activation Scripts (MAS) to receive Extended Security Updates until 2028. Windows 10 LTSC 2021 still receives security updates until 2032. For that image, set `VERSION` to `https://archive.org/download/Windows10EnterpriseLTSC202164Bit/en-us_windows_10_enterprise_ltsc_2021_x64_dvd_d289cf96.iso`.
-
-LinOffice cannot ship a ready-made virtual machine. Redistributing Windows and Office is not allowed. Setup downloads Windows from Microsoft, installs it, then downloads and installs Office.
-
+Mainstream support for Windows 10 ended in October 2025. After installation you can use Microsoft Activation Scripts (MAS) to receive Extended Security Updates until 2028. Alternatively, Windows 10 LTSC 2021 still receives security updates until 2032. For that image, set `VERSION` to `https://archive.org/download/Windows10EnterpriseLTSC202164Bit/en-us_windows_10_enterprise_ltsc_2021_x64_dvd_d289cf96.iso`.
 </details>
 
-### 4. Start LinOffice
+
+### 4. Start the LinOffice setup
 
 ```bash
 cd "$HOME/.local/bin/linoffice" && python3 gui/linoffice.py
 ```
 
-This opens the installer. It downloads about 8 GB and installs Windows, then Office. On a 2023 mid-range laptop with a 250 Mbps connection, that took about 15 minutes (about 3 minutes to download Windows, 8 minutes to install it, and 4 minutes to download and install Office).
+This opens the installer. It downloads about 8 GB and installs Windows, then Office. On a 2023 mid-range laptop with a 250 Mbps connection, that took about 15 minutes (about 3 minutes to download Windows, 8 minutes to install it, and 4 minutes to download and install Office). 
 
-When it finishes, Word, Excel, PowerPoint, OneNote, Outlook, and LinOffice are in your application menu.
+When it finishes, Word, Excel, PowerPoint, OneNote, Outlook, and LinOffice should appear in your application menu.
 
 If setup succeeds, please [share your system setup](https://github.com/eylenburg/linoffice/issues/16). That helps show where LinOffice works without extra steps.
 
+
 ## Updating
 
-**Flatpak.** LinOffice updates come from the LinOffice Flatpak repository. Update it in your software store, or run:
+**Flatpak version.** If you have added the LinOffice repository, you can update LinOffice from your software store (e.g. KDE Discover, GNOME Software), or run:
 
 ```bash
 flatpak update io.github.eylenburg.LinOffice
 ```
 
-The updater inside the LinOffice window does not update a Flatpak.
+The update button inside the LinOffice GUI does not work if you are running the Flatpak version.
 
-**Installed from this repository.** Use the updater in the LinOffice window. You can also download the newest version and copy its files over the old folder. Do not delete the old folder first. Setup creates files that the existing install still needs, and an older install may keep its configuration next to `linoffice.sh`.
+**Manually installed.** Use the update button in the LinOffice GUI. 
 
-**Windows and Office.** These update on their own. The LinOffice window also has an update action for them. From a terminal, that is `./linoffice.sh update`.
+**Windows virtual machine and Microsoft Office.** These update on their own. The LinOffice GUI also has an update action for them. 
 
-**LinOffice v1.0.7 and older.** If the Windows virtual machine was created by one of those versions, copy the files from `config/oem` into `C:\OEM` in the virtual machine and overwrite the old copies. In a full Windows session (`./linoffice.sh windows`), your Linux home folder is `\\tsclient\home`. On a current install, `./linoffice.sh refresh-oem` copies the OEM scripts into the existing virtual machine for you.
 
 ## Uninstall
 
-**Flatpak.** Remove LinOffice in your software store, or run:
+**Flatpak version.** Remove LinOffice from your software store, or run:
 
 ```bash
 flatpak uninstall io.github.eylenburg.LinOffice
 ```
 
-That removes the application only. The Windows virtual machine stays until you delete the Podman container `LinOffice` and the volume `linoffice_data`.
+That removes LinOffice only. The Windows virtual machine stays until you delete the Podman container `LinOffice` and the volume `linoffice_data` with the command `podman rm -f LinOffice && podman volume rm linoffice_data`.
 
-**Installed from this repository.** Open LinOffice, open **Troubleshooting**, and click **Uninstall**.
 
-<details><summary>Where are the files saved?</summary>
+**Manually installed.** Open LinOffice, click **Troubleshooting**, and then **Uninstall**.
 
-- **App files:** the folder that contains `linoffice.sh`. An install from this repository is usually `~/.local/bin/linoffice`. A Flatpak keeps the application under `/app`, which is removed with the Flatpak itself.
-- **Config:** `compose.yaml`, `linoffice.conf`, and the working `oem/` directory. A new install uses `${XDG_CONFIG_HOME:-~/.config}/linoffice`. If `config/compose.yaml` or `config/linoffice.conf` already exists next to `linoffice.sh`, that folder keeps being used.
-- **Data:** logs, setup progress, `registry_override.conf`, and the suspend marker. If `~/.local/share/linoffice` already exists, it stays the data directory. Otherwise the directory is `${XDG_DATA_HOME:-~/.local/share}/linoffice`.
-- **Desktop files:** `${XDG_DATA_HOME:-~/.local/share}/applications`, unless `LINOFFICE_APPLICATIONS_DIR` is set. The Flatpak exports its own launchers and does not write these files.
-- **Windows VM:** Podman project name `linoffice`, container `LinOffice`, volume `linoffice_data` (`podman rm -f LinOffice && podman volume rm linoffice_data`).
-- Path overrides: `LINOFFICE_PREFIX`, `LINOFFICE_CONFIG_DIR`, `LINOFFICE_DATA_DIR`, `LINOFFICE_APPLICATIONS_DIR`. `lib/paths.sh` and `lib/paths.py` resolve them.
-
-</details>
 
 # Usage
 
@@ -253,9 +227,9 @@ After installation, you should find the launchers for the Office applications in
 
 You can open files from your file manager with Right-click -> Open with. 
 
-### Using the GUI
+### Launching LinOffice
 
-You will find a launcher for "LinOffice" in your app menu.
+You will find a launcher for the individual Office apps as well as the LinOffice GUI itself in your app menu.
 
 <details>
 <summary><strong>Using the terminal</strong></summary>
@@ -292,18 +266,13 @@ After that, `linoffice` means the same thing as `./linoffice.sh`.
 
 </details>
 
+
+
 ### Office activation 
 
 You will need an Office 2024 license key or Office 365 subscription to use Office. During the first 5 days after installation, you can use Office without activation by clicking on "I have a product key" and then on the "X" of the window where you are supposed to enter your product key.
 
 The **Microsoft Activation Scripts (MAS)** will also work if you have, let's say, trouble with activation - just run `./linoffice.sh manual powershell.exe` from the script's directory to open a Powershell window where you can then paste the command to run MAS. 
-
-### Printing
-
-The Office application are running in a virtual machine with Windows, meaning that the printers you have set up in Linux are not available. There are two options if you need to print from Office:
-
-1. Print to PDF / export to PDF and then print the PDF from Linux
-2. If you have a network printer you can easily install it in Windows. Find out its local IP address (e.g. with `lpstat -v`), then open the Windows VM (e.g. via the Tools menu in LinOffice), then Settings -> Printers and Scanners -> Add Device -> Add a new device manually -> Add printer using IP Address
 
 
 # Troubleshooting
@@ -378,11 +347,16 @@ Please [open a bug report](https://github.com/eylenburg/linoffice/issues) and in
 
 Some users have reported the issue that when they try to log in to Microsoft (e.g. in order to activate Microsoft 365) they login window would hang and not progress. The workaround for this access a "full" RDP session (in GUI: `Tools` -> Access Windows desktop `via RDP`; in CLI: `./linoffice.sh windows`). You should be able to log in in this session. Afterwards, you can close the window and use LinOffice as usual.
 
+### Printing
+
+The Office application are running in a virtual machine with Windows, meaning that the printers you have set up in Linux are not available. There are two options if you need to print from Office:
+
+1. Print to PDF / export to PDF and then print the PDF from Linux
+2. If you have a network printer you can easily install it in Windows. Find out its local IP address (e.g. with `lpstat -v`), then open the Windows VM (e.g. via the Tools menu in LinOffice), then Settings -> Printers and Scanners -> Add Device -> Add a new device manually -> Add printer using IP Address
+
 ### Window management
 
-In my experience, window management can be wonky, particularly if you're using Wayland instead of X11 or if you're using multiple monitors.
-
-A potential solution for multimonitor issues could be to open `linoffice.conf` in the config directory (see "Where are the files saved?") and in the last line (`RDP_FLAGS`) adding `/multimon`. This is supposed to add multimonitor support to FreeRDP, but a FreeRDP bug may result in a black screen, in which case you should revert this change. Another potential solution is to add `/monitors:1` or `/monitors:0` to the `RDP_FLAGS` line in `linoffice.conf`, where the monitor ID is based on your "desired" monitor that the apps will run in;  while it restricts the Office windows to this desktop you should avoid the windows being unresponsive or disappearing and resizing works properly within this monitor.
+In my experience, window management can be wonky, particularly if you're using Wayland instead of X11 or if you're using multiple monitors. I believe that these are FreeRDP upstream issues. You can try to toggling the FreeRDP options for High Definition and Multimonitor use which can be found in the "Troubleshooting" menu of the LinOffice GUI. Maybe it helps. Probably not.
 
 <details><summary>Examples</summary>
     
@@ -393,7 +367,6 @@ A potential solution for multimonitor issues could be to open `linoffice.conf` i
 
 </details>
 
-I believe that these are FreeRDP issues. If it becomes too bad, you can try `./linoffice.sh reset` to kill all FreeRDP processes and reboot the Windows VM - but be aware that you will lose any unsaved Office documents this way.
 
 ### Wrong keyboard layout
 
@@ -403,36 +376,12 @@ Setup tries to copy your Linux keyboard layout into Windows. If it cannot detect
 
 Open LinOffice and pick the layout in **Settings**.
 
-To set the same thing without the window, edit `linoffice.conf` in the config directory:
-
-- New install: `~/.config/linoffice/linoffice.conf`
-- Older install that already had its config next to the script: `config/linoffice.conf` in the LinOffice folder
-
-Find this line:
-
-```
-RDP_KBD=""
-```
-
-Look up your layout in [`config/languages.csv`](https://github.com/eylenburg/linoffice/blob/main/config/languages.csv). The first column is the FreeRDP code. Two examples:
-
-```
-RDP_KBD="/kbd:layout:0x0809"
-```
-
-United Kingdom.
-
-```
-RDP_KBD="/kbd:layout:0x0407"
-```
-
-Germany.
 
 **2. Set the layout inside Windows**
 
 Use this when the setting above has no effect.
 
-1. Open a full Windows session. In LinOffice, use **Tools** and open the Windows desktop via RDP. From a terminal: `./linoffice.sh windows`. Or open http://127.0.0.1:8006 in a browser (password `MyWindowsPassword`). Sign out when you leave the browser session, or a later RDP connection can fail.
+1. Open a full Windows session. In LinOffice, use **Tools** and open the Windows desktop via RDP. Or open http://127.0.0.1:8006 in a browser (password `MyWindowsPassword`). Sign out when you leave the browser session, or a later RDP connection can fail.
 2. In Windows Settings, set the keyboard layout.
 3. Open Command Prompt and run:
 
@@ -445,6 +394,7 @@ That tells Windows to keep its own layout instead of the layout sent by FreeRDP.
 **More than one Linux layout**
 
 Switching layouts in Linux, for example between a Latin and a non-Latin script, is not copied into Windows. A workaround is described in [this WinApps comment](https://github.com/winapps-org/winapps/issues/43#issuecomment-3227432458).
+
 
 ### Orphaned lock files
 
@@ -466,7 +416,10 @@ LinOffice searches and deletes these lock files when the last Office process is 
 
 ### Changing the password or username for the Windows virtual machine
 
-At the moment, these are hardcoded to `MyWindowsUser` and `MyWindowsPassword` in several files. However, once the setup finishes and you are able to successfully start Office applications via LinOffice, you can change the password or username if you wish to do so.
+At the moment, these are hardcoded to `MyWindowsUser` and `MyWindowsPassword` in several files. It is recommended to keep them.
+
+<details><summary>But I want to change them!</summary>
+However, once the setup finishes and you are able to successfully start Office applications via LinOffice, you can change the password or username if you wish to do so.
 
 First, change the password and/or username in Windows. To do this you need to access the "full" Windows session, either via RDP (`./linoffice.sh windows`) or VNC (`127.0.0.1:8006` in the browser, password is `MyWindowsPassword`; log out from Windows when you're done).
 
@@ -481,6 +434,8 @@ Make sure they match your newly set Windows password and username.
 
 >[!WARNING]
 >Please note that the setup script (`setup.sh`) currently still expects the original credentials, so if you need to run it again for any reason it may fail after you have changed the password or username.
+
+</details>
 
 # For developers
 
@@ -527,6 +482,17 @@ These are the files that are part of LinOffice and what they do. Paths are from 
 - `.flatpak/install.html`: Page linked from the install buttons. The publish workflow copies it to `https://eylenburg.github.io/linoffice/install.html`. That page sends the browser to `flatpak+https://` for the `.flatpakref`, which Discover and GNOME Software open directly.
 - `.flatpak/icons/`: Icons exported with the Flatpak.
 - `.github/workflows/flatpak-repo.yml`: Builds the Flatpak on a version tag or a manual run, and publishes the repository to GitHub Pages.
+
+</details>
+
+<details><summary>Where are the files saved?</summary>
+
+- **App files:** the folder that contains `linoffice.sh`. An install from this repository is usually `~/.local/bin/linoffice`. A Flatpak keeps the application under `/app`, which is removed with the Flatpak itself.
+- **Config:** `compose.yaml`, `linoffice.conf`, and the working `oem/` directory. A new install uses `${XDG_CONFIG_HOME:-~/.config}/linoffice`. If `config/compose.yaml` or `config/linoffice.conf` already exists next to `linoffice.sh`, that folder keeps being used.
+- **Data:** logs, setup progress, `registry_override.conf`, and the suspend marker. If `~/.local/share/linoffice` already exists, it stays the data directory. Otherwise the directory is `${XDG_DATA_HOME:-~/.local/share}/linoffice`.
+- **Desktop files:** `${XDG_DATA_HOME:-~/.local/share}/applications`, unless `LINOFFICE_APPLICATIONS_DIR` is set. The Flatpak exports its own launchers and does not write these files.
+- **Windows VM:** Podman project name `linoffice`, container `LinOffice`, volume `linoffice_data` (`podman rm -f LinOffice && podman volume rm linoffice_data`).
+- Path overrides: `LINOFFICE_PREFIX`, `LINOFFICE_CONFIG_DIR`, `LINOFFICE_DATA_DIR`, `LINOFFICE_APPLICATIONS_DIR`. `lib/paths.sh` and `lib/paths.py` resolve them.
 
 </details>
 
