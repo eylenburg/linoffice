@@ -50,8 +50,6 @@ jobs:
           gpg-sign: ${{ steps.gpg.outputs.fingerprint }}
           upload-bundles: true
           upload-pages-artifact: true
-          flatpak-builder-args: |
-            --default-branch=stable
 
       - name: Download bundle artifact
         uses: actions/download-artifact@v4
