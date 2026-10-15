@@ -42,6 +42,25 @@ jobs:
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
 
+      - name: Create Flatpak ref
+        run: |
+          fpr="${{ steps.gpg.outputs.fingerprint }}"
+          test -n "$fpr"
+          gpg --export "$fpr" > /tmp/linoffice-public.gpg
+          test -s /tmp/linoffice-public.gpg
+          key="$(base64 /tmp/linoffice-public.gpg | tr -d '\n')"
+          test -n "$key"
+          cat > .flatpak/io.github.eylenburg.LinOffice.flatpakref <<EOF
+          [Flatpak Ref]
+          Name=io.github.eylenburg.LinOffice
+          Branch=master
+          Title=LinOffice
+          Url=https://eylenburg.github.io/linoffice
+          RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
+          IsRuntime=false
+          GPGKey=${key}
+          EOF
+
       - name: Build Flatpak repository
         uses: andyholmes/flatter@v1
         with:
@@ -50,6 +69,10 @@ jobs:
           gpg-sign: ${{ steps.gpg.outputs.fingerprint }}
           upload-bundles: true
           upload-pages-artifact: true
+          # The previous step writes this file. Flatter copies it to the
+          # Pages root by basename:
+          # https://eylenburg.github.io/linoffice/io.github.eylenburg.LinOffice.flatpakref
+          upload-pages-includes: .flatpak/io.github.eylenburg.LinOffice.flatpakref
           cache-key: flatter-v2
 
       - name: Download bundle artifact
