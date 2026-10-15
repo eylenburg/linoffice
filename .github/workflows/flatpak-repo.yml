@@ -37,7 +37,7 @@ jobs:
           # passphrase: ${{ secrets.GPG_PRIVATE_KEY_PASSPHRASE }}
 
       - name: Build Flatpak repository
-        uses: andyholmes/flatter@v2
+        uses: andyholmes/flatter@v1
         with:
           files: .flatpak/io.github.eylenburg.LinOffice.yml
           arch: x86_64
