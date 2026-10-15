@@ -24,4 +24,4 @@ jobs:
       run-linter: false
     secrets:
       gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
-      gpg-private-key-passphrase: ${{ secrets.GPG_PRIVATE_KEY_PASSPHRASE }}
+      # gpg-private-key-passphrase: ${{ secrets.GPG_PRIVATE_KEY_PASSPHRASE }}
