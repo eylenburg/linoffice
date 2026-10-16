@@ -106,7 +106,7 @@ flatpak remote-add --if-not-exists --user linoffice https://eylenburg.github.io/
 
 Do these steps in order. Step 3 is optional.
 
-### 1. Install the dependencies
+#### Step 1. Install the dependencies
 
 You need:
 
@@ -120,25 +120,22 @@ You need:
 
 Below are some distribution-specific commands to install the dependencies:
 
-**Debian 13 and newer**
+**Debian 13 and newer, Ubuntu 24.10 and newer**
 
 ```bash
 sudo apt install podman podman-compose freerdp3-x11 python3 python3-pyside6 python3-pyside6.qtwidgets python3-pyside6.qtuitools
 ```
 
-**Ubuntu 24.10 and newer**
-
-```bash
-sudo apt install podman podman-compose freerdp3-x11 python3 python3-pyside6 python3-pyside6.qtwidgets python3-pyside6.qtuitools
-```
+>[!NOTE]
+>Debian 12 and Ubuntu 24.04 users are advised to install the Flatpak version.
 
 **Fedora**
 
 ```bash
 sudo dnf install podman podman-compose freerdp python3 python3-pyside6
 ```
-
-On Fedora Atomic (Silverblue, Kinoite, and similar), installing the Flatpak version of LinOffice is easier.
+>[!NOTE]
+>On Fedora Atomic (Silverblue, Kinoite, and similar), installing the Flatpak version of LinOffice is easier.
 
 **openSUSE**
 
@@ -152,13 +149,18 @@ sudo zypper install podman podman-compose freerdp python3 python3-pyside6
 sudo pacman -S --needed podman podman-compose freerdp python pyside6
 ```
 
+**OpenMandriva**
 
-### 2. Download LinOffice
+```bash
+sudo dnf install podman podman-compose freerdp python pyside6
+```
+
+#### Step 2. Download LinOffice
 
 Download the zip from the [releases page](https://github.com/eylenburg/linoffice/releases), unpack it, and put the contents into `~/.local/bin/linoffice`.
 
 
-### 3. Optional: change settings before the first start
+#### Step 3. Optional: change settings before the first start
 
 Skip this step to accept the defaults (Windows 11 Pro, 4 GB RAM, 4 CPU cores, 64 GB disk).
 
@@ -175,7 +177,7 @@ Mainstream support for Windows 10 ended in October 2025. After installation you 
 </details>
 
 
-### 4. Start the LinOffice setup
+#### Step 4. Start the LinOffice setup
 
 ```bash
 cd "$HOME/.local/bin/linoffice" && python3 gui/linoffice.py
@@ -187,8 +189,27 @@ When it finishes, Word, Excel, PowerPoint, OneNote, Outlook, and LinOffice shoul
 
 If setup succeeds, please [share your system setup](https://github.com/eylenburg/linoffice/issues/16). That helps show where LinOffice works without extra steps.
 
+## Option 3: Quickstart script (deprecated)
 
-## Updating
+>[!WARNING]
+>This installation option is deprecated. Most users are advised to install the Flatpak version instead, or do a manual install if you want to customize your virtual machine.
+
+If you don't want to install the Flatpak version, but also don't want to or know how to install the dependencies that LinOffice needs, you can use the **LinOffice Quickstart script**. This should automatically install all the required dependencies on you system download LinOffice, and start the setup. 
+
+>[!WARNING]
+>The quickstart script will fail if you are using NixOS, Guix System, Slackware, Gentoo, or Alpine. In this case you will need to do install the dependencies yourself (see above) or use the Flatpak version.
+
+Simply this in a terminal:
+
+```bash
+curl -sSL https://github.com/eylenburg/linoffice/raw/refs/heads/main/quickstart.sh -o quickstart.sh && chmod +x quickstart.sh && ./quickstart.sh
+```
+
+>[!NOTE]
+>The script will install Podman, Podman-Compose, FreeRDP3, Python3 and PySide6 on your computer. If they are not available in your repo, they will be installed via Flatpak or Pip where possible.
+
+
+# Updating
 
 **Flatpak version.** If you have added the LinOffice repository, you can update LinOffice from your software store (e.g. KDE Discover, GNOME Software), or run:
 
@@ -198,12 +219,12 @@ flatpak update io.github.eylenburg.LinOffice
 
 The update button inside the LinOffice GUI does not work if you are running the Flatpak version.
 
-**Manually installed.** Use the update button in the LinOffice GUI. 
+**Manually installed or installed using Quickstart script.** Use the update button in the LinOffice GUI. 
 
 **Windows virtual machine and Microsoft Office.** These update on their own. The LinOffice GUI also has an update action for them. 
 
 
-## Uninstall
+# Uninstalling
 
 **Flatpak version.** Remove LinOffice from your software store, or run:
 
@@ -214,7 +235,7 @@ flatpak uninstall io.github.eylenburg.LinOffice
 That removes LinOffice only. The Windows virtual machine stays until you delete the Podman container `LinOffice` and the volume `linoffice_data` with the command `podman rm -f LinOffice && podman volume rm linoffice_data`.
 
 
-**Manually installed.** Open LinOffice, click **Troubleshooting**, and then **Uninstall**.
+**Manually installed or installed using Quickstart script.** Open LinOffice, click **Troubleshooting**, and then **Uninstall**.
 
 
 # Usage
@@ -231,18 +252,27 @@ You can open files from your file manager with Right-click -> Open with.
 
 You will find a launcher for the individual Office apps as well as the LinOffice GUI itself in your app menu.
 
-<details>
-<summary><strong>Using the terminal</strong></summary>
+### Using the CLI
 
 Most people can ignore this and use the LinOffice window and the Office launchers in the application menu.
 
-Run the commands below from the folder that contains `linoffice.sh` (usually `~/.local/bin/linoffice`). To run them from anywhere, add an alias and change the path if your copy lives somewhere else:
+>[!NOTE]
+>Flatpak users need to run `flatpak run --command=/app/linoffice.sh io.github.eylenburg.LinOffice --argument` instead of `./linoffice.sh --argument`
+
+<details>
+<summary><strong>Available terminal commands</strong></summary>
+
+
+Run the commands below from the folder that contains `linoffice.sh` (usually `~/.local/bin/linoffice`). 
+To run them from anywhere, add an alias and change the path if your copy lives somewhere else:
 
 ```bash
 echo "alias linoffice=\"$HOME/.local/bin/linoffice/linoffice.sh\"" >> ~/.bashrc && source ~/.bashrc
 ```
 
 After that, `linoffice` means the same thing as `./linoffice.sh`.
+
+**linoffice.sh**
 
 - `./linoffice.sh [excel|word|powerpoint|onenote|outlook]`: open one of the Office applications
 - `./linoffice.sh manual [msaccess.exe|mspub.exe]`: open Access or Publisher, if you installed them yourself (they are not in the default Office install)
@@ -256,7 +286,7 @@ After that, `linoffice` means the same thing as `./linoffice.sh`.
 - `./linoffice.sh cleanup [--full|--reset]`: delete Office lock files (such as `~$file.xlsx`) in the home folder and on removable media; `--full` deletes them regardless of age, `--reset` resets the last-cleanup timestamp
 - `./linoffice.sh refresh-oem`: copy the current OEM scripts into an existing Windows virtual machine (`C:\OEM`, and `TimeSync.ps1` into the Windows directory) without reinstalling Windows
 
-`setup.sh` can also be run on its own:
+**setup.sh**
 
 - `./setup.sh --desktop`: only (re)create the application launchers. The Flatpak already includes them.
 - `./setup.sh --firstrun`: run the RDP and Office checks again, after the Windows virtual machine has finished installing
@@ -265,7 +295,6 @@ After that, `linoffice` means the same thing as `./linoffice.sh`.
 - `./setup.sh --refresh-oem`: same as `./linoffice.sh refresh-oem`
 
 </details>
-
 
 
 ### Office activation 
@@ -307,6 +336,11 @@ From the LinOffice folder, run:
 ./setup.sh --firstrun
 ```
 
+If you have installed the Flatpak version, this would be:
+```bash
+flatpak run --command=/app/setup.sh io.github.eylenburg.LinOffice --firstrun
+```
+
 If the Office apps are now in your menu, you are done.
 
 #### 2. Can Linux connect with FreeRDP?
@@ -321,7 +355,7 @@ Use whichever FreeRDP command exists on your system:
 | `xfreerdp` | `xfreerdp` |
 | Flathub FreeRDP | `flatpak run --command=xfreerdp com.freerdp.FreeRDP` |
 
-The LinOffice Flatpak brings its own FreeRDP. These three commands are for an install from this repository.
+The LinOffice Flatpak brings its own copy of FreeRDP. These three commands are only relevant for manual installs where you have installed FreeRDP yourself.
 
 Replace `xfreerdp3` if your command is different. Close each window if it opens.
 
@@ -441,8 +475,7 @@ RDP_PASS="MyWindowsPassword"
 
 Make sure they match your newly set Windows password and username.
 
->[!WARNING]
->Please note that the setup script (`setup.sh`) currently still expects the original credentials, so if you need to run it again for any reason it may fail after you have changed the password or username.
+Please note that the setup script (`setup.sh`) currently still expects the original credentials, so if you need to run it again (e.g. `./setup.sh --healthcheck`) it will fail if you have changed the password or username.
 
 </details>
 
