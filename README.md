@@ -1,8 +1,6 @@
 <p align="center">
-  <a href="https://eylenburg.github.io/linoffice/install.html"><img alt="Click here to install LinOffice with Flatpak" height="64" src="https://img.shields.io/badge/Click%20here%20to%20install-Flatpak-0D597F?style=for-the-badge&logo=flatpak&logoColor=white"></a>
+  <a href="https://github.com/eylenburg/linoffice#option-1-flatpak"><img alt="Click here to install LinOffice with Flatpak" height="64" src="https://img.shields.io/badge/Click%20here%20to%20install-Flatpak-0D597F?style=for-the-badge&logo=flatpak&logoColor=white"></a>
 </p>
-
-The button offers to install LinOffice as a Flatpak. Your browser will ask to open Discover or GNOME Software. Allow that prompt. **You also need [Podman](https://podman.io/docs/installation#installing-on-linux) installed on your system.**
 
 # LinOffice - Microsoft Office launcher for Linux
 
@@ -56,20 +54,14 @@ The project utilises [Winapps](https://github.com/winapps-org/winapps), [Dockur/
 
 ### Comparison with other options to run Microsoft Office in Linux
 
-| |Linoffice|Winapps|Windows VM|Crossover|Wine|
-|:----|:----|:----|:----|:----|:----|
-|Latest supported Office versions|**2024** (installed by default) and **365** (upgrade after login)|All up to **2024** and **365**|All up to **2024** and **365**|All up to **2016**, **365** may or may not work ([List](https://www.codeweavers.com/compatibility?browse=&app_desc=&company=&rating=&platform=&date_start=&date_end=&name=microsoft+excel&search=app#cxlinux))|All up to **2016** ([List](https://appdb.winehq.org/objectManager.php?sClass=application&iId=11))|
-|Office components|All, but installed by default: Excel, Word, Powerpoint, OneNote, Outlook|All: Excel, Word, Powerpoint, OneNote, Outlook, Access, Publisher, Visio, Project|All: Excel, Word, Powerpoint, OneNote, Outlook, Access, Publisher, Visio, Project|Excel, Word, Powerpoint|Excel, Word, Powerpoint|
-|Bugginess|🐞 Issues when moving or resizing Office windows or when working with multiple open Office windows|🐞 Issues when moving or resizing Office windows or when working with multiple open Office windows|✅ No bugs, working just as Microsoft intended|🐞🐞 UI bugs, crashes, failing to save files, certain features may not work|🐞🐞🐞 UI bugs, crashes, failing to save files, certain features may not work, installation or activation may fail|
-|Cost|Free|Free|Free|$60/€60/£60 for Crossover|Free|
-|Activation with MAS|✅Yes|✅Yes|✅Yes|❌No|❌No|
-|RAM & CPU use|🔴 Significant (Windows VM)|🔴 Significant (Windows VM)|🔴 Significant (Windows VM)|🟢 Modest|🟢 Modest|
-|Integration into Linux|✅ App launchers<br />✅ File associations<br />✅ Access to `/home`<br />✅ Shared clipboard|✅ App launchers<br />✅ File associations<br />✅ Access to `/home`<br />✅ Shared clipboard|❌ App launchers<br />❌ File associations<br />⚠️ Access to `/home`\*<br />⚠️ Shared clipboard\*|✅ App launchers<br />✅ File associations<br />✅ Access to `/home`<br />✅ Shared clipboard|✅ App launchers<br />✅ File associations<br />✅ Access to `/home`<br />✅ Shared clipboard|
-|Installation & setup|🟢 Easy:<br />1. Install Podman<br />2. Install the LinOffice Flatpak<br />3. Open LinOffice|🔴 Complicated:<br />1. Install dependencies<br />2. Set up Windows VM<br />3. Install Office in VM<br />4. Create config file<br />5. Run WinApps installer|🟡 Medium:<br />1. Install dependencies<br />2. Set up Windows VM<br />3. Install Office in VM|🟢 Easy:<br />1. Install Crossover<br />2. Download Office installer and open it in Crossover|🔴 Complicated; installation and activation will fail without arcane workarounds\**, no automatic creation of `.desktop` files|
+**[Click here for a comparison of LinOffice with other options to run Microsoft Office in Linux](https://gist.github.com/eylenburg/38e5da371b7fedc0662198efc66be57b#comparison-with-other-options-to-run-microsoft-office-in-linux)**, such as a plain Windows VM, WinApps, Winboat, Crossover, PlayOnLinux, and Bottles.
 
-\*requires manual setup, e.g. VirtIO-win and WinFSP or Samba when using Virt-Manager/Qemu, or Virtualbox Guest Additions for Virtualbox
+**LinOffice is the best choice if you want a recent Microsoft Office (2024 or 365) that integrates well into Linux (app launchers, file associations, home folder access, clipboard sharing) while keeping setup simple.**
 
-\**PlayOnLinux 4 has install scripts for Office 2016 and below that may or may not work
+It is a focused fork of WinApps that automates most of the VM setup and adds Office-specific improvements. Because the Office apps run on real Windows, they work as Microsoft intended - unlike Wine-based options (Crossover, PlayOnLinux, Bottles), which are limited to older Office versions and suffer from more bugs and crashes features.
+
+**Use LinOffice if** you mainly need Office, have enough RAM/CPU/storage for a Windows VM running in the background, and prefer an easy automated setup over manual configuration.  
+**Prefer alternatives if** you also want to run other Windows apps the same way (in which case I would recommend WinApps or Winboat instead), cannot or do not want to run a resource-heavy VM in the background (try the Wine-based options), or need a completely bug-free experience (a plain Windows VM without FreeRDP integration may be more stable, though less integrated).
 
 # Installation
 
