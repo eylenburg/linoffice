@@ -1221,24 +1221,6 @@ function waRunCommand() {
             exit 1
         fi
 
-        # Wait for the process to terminate with timeout
-        local wait_timeout=30
-        local wait_elapsed=0
-        local wait_interval=1
-
-        while kill -0 "$FREERDP_PID" 2>/dev/null && [ $wait_elapsed -lt $wait_timeout ]; do
-            sleep $wait_interval
-            wait_elapsed=$((wait_elapsed + wait_interval))
-        done
-
-        # If process is still running after timeout, force kill it
-        if kill -0 "$FREERDP_PID" 2>/dev/null; then
-            dprint "FreeRDP process $FREERDP_PID still running after timeout, force killing"
-            kill -TERM "$FREERDP_PID" 2>/dev/null
-            sleep 2
-            kill -KILL "$FREERDP_PID" 2>/dev/null
-        fi
-
         # Remove the file with the process ID
         rm "${APPDATA_PATH}/FreeRDP_Process_${FREERDP_PID}.cproc" &>/dev/null
 
