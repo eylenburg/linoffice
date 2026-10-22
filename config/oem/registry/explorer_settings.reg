@@ -26,3 +26,7 @@ Windows Registry Editor Version 5.00
 ; Disable OneDrive notifications
 [HKEY_USERS\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\Microsoft.SkyDrive.Desktop]
 "Enabled"=dword:00000000
+
+; Disable Windows 11 top-of-screen window snapping toolbar (snap bar)
+[HKEY_USERS\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced]
+"EnableSnapBar"=dword:00000000
