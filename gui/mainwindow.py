@@ -1,9 +1,9 @@
 # This Python file uses the following encoding: utf-8
 import sys
-from PySide6.QtWidgets import QApplication, QWidget, QMainWindow, QMessageBox, QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QTextEdit
+from PySide6.QtWidgets import QApplication, QWidget, QMainWindow, QMessageBox, QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QTextEdit, QDialogButtonBox, QStyle, QSizePolicy
 from PySide6.QtUiTools import QUiLoader
-from PySide6.QtCore import QFile, QTimer, QProcess
-from PySide6.QtGui import QTextCursor
+from PySide6.QtCore import QFile, QTimer, QProcess, Qt
+from PySide6.QtGui import QTextCursor, QFontDatabase, QFontMetrics, QIcon, QPalette
 import subprocess
 import os
 import csv
@@ -763,6 +763,127 @@ class ToolsWindow(QMainWindow):
         if hasattr(self, 'output_dialog'):
             self.output_dialog.accept()
 
+def _copy_uninstall_command(command, button):
+    QApplication.clipboard().setText(command)
+    button.setText("Copied")
+    QTimer.singleShot(1500, button, lambda: button.setText("Copy"))
+
+
+def _uninstall_command_row(dialog, command, code_font):
+    row = QHBoxLayout()
+    row.setSpacing(8)
+
+    code = QLabel(command)
+    code.setFont(code_font)
+    code.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+    code.setFocusPolicy(Qt.ClickFocus)
+    code.setCursor(Qt.IBeamCursor)
+    code.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+    metrics = QFontMetrics(code_font)
+    code.setMinimumWidth(metrics.horizontalAdvance(command) + 24)
+    code.setMinimumHeight(metrics.height() + 16)
+    palette = dialog.palette()
+    background = palette.color(QPalette.AlternateBase).name()
+    foreground = palette.color(QPalette.Text).name()
+    border = palette.color(QPalette.Mid).name()
+    code.setStyleSheet(
+        "QLabel {"
+        f" background-color: {background};"
+        f" color: {foreground};"
+        f" border: 1px solid {border};"
+        " border-radius: 4px;"
+        " padding: 6px 8px;"
+        "}"
+    )
+    row.addWidget(code, 1)
+
+    copy_btn = QPushButton("Copy")
+    copy_btn.setIcon(QIcon.fromTheme("edit-copy"))
+    copy_btn.setToolTip("Copy this command")
+    copy_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+    copy_btn.clicked.connect(
+        lambda checked=False, cmd=command, btn=copy_btn: _copy_uninstall_command(cmd, btn)
+    )
+    row.addWidget(copy_btn, 0, Qt.AlignVCenter)
+    return row
+
+
+def show_flatpak_uninstall_dialog(parent):
+    dialog = QDialog(parent)
+    dialog.setWindowTitle("Uninstall")
+
+    root = QVBoxLayout(dialog)
+    root.setContentsMargins(18, 16, 18, 12)
+    root.setSpacing(16)
+
+    header = QHBoxLayout()
+    header.setSpacing(12)
+    icon_label = QLabel()
+    icon_size = dialog.style().pixelMetric(QStyle.PM_MessageBoxIconSize, None, dialog)
+    if icon_size <= 0:
+        icon_size = 48
+    icon = dialog.style().standardIcon(QStyle.SP_MessageBoxInformation, None, dialog)
+    icon_label.setPixmap(icon.pixmap(icon_size, icon_size))
+    icon_label.setAlignment(Qt.AlignTop)
+    icon_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+    header.addWidget(icon_label)
+
+    intro = QLabel(
+        "This copy of LinOffice is a Flatpak, so it cannot uninstall itself. "
+        "Run the command for what you want to delete."
+    )
+    intro.setWordWrap(True)
+    intro.setAlignment(Qt.AlignTop)
+    header.addWidget(intro, 1)
+    root.addLayout(header)
+
+    code_font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
+    sections = (
+        (
+            "If you want to delete the application, run:",
+            "flatpak uninstall io.github.eylenburg.LinOffice",
+            "This deletes the Flatpak only. The container and the Windows virtual machine stay.",
+        ),
+        (
+            "If you want to delete the container, run:",
+            "podman rm -f LinOffice",
+            "This deletes the Podman container named LinOffice. "
+            "The Windows virtual machine stays in the linoffice_data volume.",
+        ),
+        (
+            "If you want to delete the container and its data (the whole Windows virtual machine), run:",
+            "podman rm -f LinOffice && podman volume rm linoffice_data",
+            None,
+        ),
+    )
+
+    for prompt, command, note in sections:
+        section = QVBoxLayout()
+        section.setSpacing(6)
+
+        prompt_label = QLabel(prompt)
+        prompt_label.setWordWrap(True)
+        prompt_font = prompt_label.font()
+        prompt_font.setBold(True)
+        prompt_label.setFont(prompt_font)
+        section.addWidget(prompt_label)
+        section.addLayout(_uninstall_command_row(dialog, command, code_font))
+        if note:
+            note_label = QLabel(note)
+            note_label.setWordWrap(True)
+            section.addWidget(note_label)
+        root.addLayout(section)
+
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok)
+    buttons.accepted.connect(dialog.accept)
+    ok_button = buttons.button(QDialogButtonBox.Ok)
+    if ok_button is not None:
+        ok_button.setDefault(True)
+    root.addWidget(buttons)
+
+    dialog.exec()
+
+
 class TroubleshootingWindow(QMainWindow):
     def __init__(self, parent=None):
         super(TroubleshootingWindow, self).__init__(parent)
@@ -937,16 +1058,7 @@ class TroubleshootingWindow(QMainWindow):
 
     def run_uninstall(self):
         if os.environ.get("FLATPAK_ID"):
-            QMessageBox.information(
-                self,
-                "Uninstall",
-                "This copy of LinOffice is a Flatpak. Remove it with your software store, or run:\n\n"
-                "flatpak uninstall io.github.eylenburg.LinOffice\n\n"
-                "That removes the application only. The Windows virtual machine stays until you delete "
-                "the LinOffice container and the linoffice_data volume.\n\n"
-                "To delete Windows and start over, run setup again, abort it, and choose \"Yes, delete\". "
-                "That also removes compose.yaml and the setup progress.",
-            )
+            show_flatpak_uninstall_dialog(self)
             return
         reply = QMessageBox.question(self, 'Confirm Uninstall',
                                      'Are you sure you want to uninstall LinOffice?',
