@@ -530,6 +530,16 @@ These are the files that are part of LinOffice and what they do. Paths are from 
 
 </details>
 
+<details><summary>What to update for new releases</summary>
+
+Before tagging a new release:
+- **updater.py**: `CURRENT_VERSION` needs to be updated
+- **.flatpak/io.github.eylenburg.LinOffice.metainfo.xml**: `<release />` tag needs to be updated
+
+Only then should a new tag and release be created in Github. Always use semantic versioning (`v0.0.0`) as this is what `updater.py` expects. Github Action will automatically build a Flatpak file to attach to the release and will also update the Flatpak repo
+  
+</details>
+
 # Legal information
 
 This project is licensed under the GNU AGPL 3. 
