@@ -1221,14 +1221,13 @@ function waRunCommand() {
             exit 1
         fi
 
-        # Remove the file with the process ID
-        rm "${APPDATA_PATH}/FreeRDP_Process_${FREERDP_PID}.cproc" &>/dev/null
+        # Keep .cproc until FreeRDP exits. Removing it here makes waCheckIdle
+        # pause a window that is still open, or never run after the app closes (#154).
+        # Do not kill this PID: inside Flatpak it is xfreerdp itself (#152).
+        # Outside Flatpak it is `podman unshare`, which exits with xfreerdp.
+        wait "$FREERDP_PID"
 
-        # Run cleanup immediately after process termination
-        waCheckMasterCleanup "true"
-        
-        # Exit the script
-        exit 0
+        rm -f "${APPDATA_PATH}/FreeRDP_Process_${FREERDP_PID}.cproc" &>/dev/null
     fi
 }
 
