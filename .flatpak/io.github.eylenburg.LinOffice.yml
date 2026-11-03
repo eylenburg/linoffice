@@ -1,20 +1,23 @@
 # Podman is not bundled. /app/bin/podman runs the host binary with flatpak-spawn.
 # That needs --talk-name=org.freedesktop.Flatpak and is a sandbox escape.
 # Host Podman uses /dev/kvm and /dev/net/tun itself, so this sandbox does not
-# take those devices. FreeRDP is the bundled X11 client (xfreerdp3) and shares
-# the host network namespace, where rootlessport listens on 127.0.0.1.
+# take those devices. FreeRDP is bundled as xfreerdp3 and sdl-freerdp3. Both
+# share the host network namespace, where rootlessport listens on 127.0.0.1.
+# LinOffice starts xfreerdp3 unless FREERDP_COMMAND is sdl-freerdp3.
 #
 # --filesystem=home grants the real home directory, which is what Office needs
 # for the RDP home drive. It does not include other applications' ~/.var/app.
-# PySide6 comes from io.qt.PySide.BaseApp.
+#
+# PySide6 comes from the upstream wheels below, which ship their own Qt.
+# io.qt.PySide.BaseApp links PySide against the runtime Qt private API, and
+# that symbol version changes on every Qt patch release. Runtime commit
+# fb23e178 moved Qt from 6.11.2 to 6.11.3 and PySide6.QtGui stopped loading.
 
 id: io.github.eylenburg.LinOffice
 runtime: org.kde.Platform
 runtime-version: '6.11'
 separate-locales: false
 sdk: org.kde.Sdk
-base: io.qt.PySide.BaseApp
-base-version: '6.11'
 command: linoffice-gui
 finish-args:
   - --share=ipc
@@ -32,12 +35,33 @@ finish-args:
   - --talk-name=org.freedesktop.Flatpak
 build-options:
   no-debuginfo: true
-  env:
-    - BASEAPP_REMOVE_WEBENGINE=1
-    - BASEAPP_DISABLE_NUMPY=1
-cleanup-commands:
-  - /app/cleanup-BaseApp.sh
 modules:
+  # QtCore, QtGui, QtWidgets, and QtUiTools, with the Qt libraries they were
+  # built against. x86_64 only, same as the publish workflow.
+  - name: pyside6
+    buildsystem: simple
+    build-commands:
+      - pip3 install --verbose --no-index --find-links="file://${PWD}" --prefix=${FLATPAK_DEST} --no-deps --no-compile shiboken6 PySide6-Essentials
+    sources:
+      - type: file
+        url: https://files.pythonhosted.org/packages/7c/4a/696e3a9ed26436b1b41ca22dd21e7bce214ba1a1e1dea5c84b5627444c65/shiboken6-6.11.3-cp310-abi3-manylinux_2_34_x86_64.whl
+        sha256: e601c957011345c741b88f661a12486f478db881d6777bdf37e3dc7a8d3387c6
+        only-arches:
+          - x86_64
+      - type: file
+        url: https://files.pythonhosted.org/packages/91/23/9692f9b9a7cf89c0e8b99da228a728064aa827dc115b5dc974156bcf14fc/pyside6_essentials-6.11.3-cp310-abi3-manylinux_2_34_x86_64.whl
+        sha256: c6a5c3b58bf55aef6e09a7de690ff6133335014ab81a7f22f56363ea08e8f6a3
+        only-arches:
+          - x86_64
+    cleanup:
+      - /bin
+      - /lib/python3*/site-packages/PySide6/Qt/libexec
+      - /lib/python3*/site-packages/PySide6/include
+      - /lib/python3*/site-packages/PySide6/typesystems
+      - /lib/python3*/site-packages/PySide6/glue
+      - /lib/python3*/site-packages/PySide6/*.pyi
+      - /lib/python3*/site-packages/PySide6/scripts
+
   - name: python-deps
     buildsystem: simple
     build-commands:
@@ -63,7 +87,11 @@ modules:
       - -DCMAKE_INSTALL_LIBDIR=lib
       - -DWITH_BINARY_VERSIONING=ON
       - -DWITH_CLIENT=ON
-      - -DWITH_CLIENT_SDL=OFF
+      # SDL3 only. SDL2 as well forces versioned names and installs
+      # sdl3-freerdp3 instead of sdl-freerdp3. Image dialogs stay off.
+      - -DWITH_CLIENT_SDL=ON
+      - -DWITH_CLIENT_SDL2=OFF
+      - -DWITH_CLIENT_SDL3=ON
       - -DWITH_X11=ON
       - -DWITH_WAYLAND=OFF
       - -DWITH_SERVER=OFF
@@ -102,6 +130,7 @@ modules:
       - /share/doc
     post-install:
       - test -x ${FLATPAK_DEST}/bin/xfreerdp3
+      - test -x ${FLATPAK_DEST}/bin/sdl-freerdp3
     sources:
       - type: archive
         url: https://github.com/FreeRDP/FreeRDP/releases/download/3.32.1/freerdp-3.32.1.tar.gz

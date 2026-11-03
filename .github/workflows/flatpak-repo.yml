@@ -28,10 +28,6 @@ jobs:
           flatpak remote-add --user --if-not-exists flathub \
             https://dl.flathub.org/repo/flathub.flatpakrepo
 
-      - name: Install PySide BaseApp
-        run: |
-          flatpak install -y --user flathub io.qt.PySide.BaseApp//6.11
-
       - name: Fix gpg2 symlink
         run: |
           ln -sf $(which gpg) /usr/local/bin/gpg2 || ln -sf $(which gpg) /usr/bin/gpg2

@@ -536,8 +536,16 @@ Before tagging a new release:
 - **updater.py**: `CURRENT_VERSION` needs to be updated
 - **.flatpak/io.github.eylenburg.LinOffice.metainfo.xml**: `<release />` tag needs to be updated
 
+The Flatpak build copies this repository as it is. LinOffice itself has no version pin in the manifest. Bundled dependencies stay on the files already listed in `.flatpak/io.github.eylenburg.LinOffice.yml` until their `url` and `sha256` change. Update those two fields together when you want a newer bundle. For a PyPI file, copy `url` and `digests.sha256` from `https://pypi.org/pypi/<project>/<version>/json`. For FreeRDP, use the GitHub release tarball and the sha256 of that file.
+
+- **pyside6**: `shiboken6` and `PySide6-Essentials`, both the `manylinux_2_34_x86_64` wheel and both the same version. The GUI needs QtCore, QtGui, QtWidgets, and QtUiTools, which are in Essentials. These wheels ship their own Qt, so this version does not have to follow the KDE runtime's Qt patch release. Leave `only-arches` as `x86_64`.
+- **python-deps**: the PyYAML, python-dotenv, and podman-compose source tarballs. The build installs only files listed in this module. If a newer podman-compose needs another package, add that tarball here too.
+- **freerdp**: the FreeRDP 3.x release tarball. The build installs `xfreerdp3` and `sdl-freerdp3`. LinOffice still starts `xfreerdp3` unless `FREERDP_COMMAND` is set to `sdl-freerdp3`.
+
+`runtime-version` stays on the KDE 6.11 branch for a normal release. Change it when moving to a new KDE runtime branch, and set the image tag in `.github/workflows/flatpak-repo.yml` to the same branch. The PySide wheels still use the runtime's glibc, libstdc++, Wayland, X11, GL, fontconfig, and freetype, so start the GUI once after that branch change.
+
 Only then should a new tag and release be created in Github. Always use semantic versioning (`v0.0.0`) as this is what `updater.py` expects. Github Action will automatically build a Flatpak file to attach to the release and will also update the Flatpak repo
-  
+
 </details>
 
 # Legal information

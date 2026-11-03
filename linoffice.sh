@@ -347,6 +347,90 @@ waOfficeCleanup() {
     dprint "UPDATED LAST CLEANUP TIMESTAMP: $LAST_CLEANUP_FILE"
 }
 
+# Name: 'waChildPids'
+# Role: PIDs whose parent is $1. /proc/.../children is empty here: podman is
+# multi-threaded and the child is recorded on a non-leader thread.
+waChildPids() {
+    local pid="$1"
+    local d pp
+    if command -v ps >/dev/null 2>&1; then
+        ps -o pid= --ppid "$pid" 2>/dev/null
+        return
+    fi
+    for d in /proc/[0-9]*; do
+        pp="$(awk '/^PPid:/ {print $2; exit}' "$d/status" 2>/dev/null || true)"
+        if [ "$pp" = "$pid" ]; then
+            basename "$d"
+        fi
+    done
+}
+
+# Name: 'waFreeRdpPidTree'
+# Role: Print a process and its descendants, children first.
+waFreeRdpPidTree() {
+    local pid="$1"
+    local child
+    for child in $(waChildPids "$pid"); do
+        [[ "$child" =~ ^[0-9]+$ ]] || continue
+        [ "$child" = "$pid" ] && continue
+        waFreeRdpPidTree "$child"
+    done
+    printf '%s\n' "$pid"
+}
+
+# Name: 'waIsLinofficeRdpProc'
+# Role: True when this PID is the podman unshare wrapper or the FreeRDP client.
+waIsLinofficeRdpProc() {
+    local cmd=""
+    [ -r "/proc/$1/cmdline" ] || return 1
+    cmd="$(tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null || true)"
+    [[ "$cmd" == *xfreerdp* || "$cmd" == *Xfreerdp* || "$cmd" == *freerdp* || "$cmd" == *podman* ]]
+}
+
+# Name: 'waKillFreeRdpPid'
+# Role: Stop one recorded FreeRDP session.
+# Outside Flatpak the .cproc PID is `podman unshare`. Killing only that PID
+# leaves xfreerdp running, and +auto-reconnect brings the old windows back
+# after a VM reboot (#155). xfreerdp ignores SIGTERM, so survivors are SIGKILLed.
+# Inside Flatpak the recorded PID is xfreerdp itself.
+waKillFreeRdpPid() {
+    local root="$1"
+    local pid
+    local -a pids=()
+
+    [[ "$root" =~ ^[0-9]+$ ]] || return 0
+    kill -0 "$root" 2>/dev/null || return 0
+    waIsLinofficeRdpProc "$root" || return 0
+
+    mapfile -t pids < <(waFreeRdpPidTree "$root")
+    for pid in "${pids[@]}"; do
+        waIsLinofficeRdpProc "$pid" || continue
+        kill -TERM "$pid" 2>/dev/null || true
+    done
+    sleep 1
+    for pid in "${pids[@]}"; do
+        waIsLinofficeRdpProc "$pid" || continue
+        kill -0 "$pid" 2>/dev/null || continue
+        dprint "Force killing FreeRDP process $pid"
+        kill -KILL "$pid" 2>/dev/null || true
+    done
+}
+
+# Name: 'waKillRecordedFreeRdp'
+# Role: Stop every FreeRDP session this app recorded, then drop the markers.
+waKillRecordedFreeRdp() {
+    local proc_file pid
+    for proc_file in "${APPDATA_PATH}"/FreeRDP_Process_*.cproc; do
+        [ -f "$proc_file" ] || continue
+        pid="$(basename "$proc_file" | sed 's/FreeRDP_Process_\(.*\)\.cproc/\1/')"
+        if [ -n "$pid" ]; then
+            dprint "Terminating FreeRDP process $pid"
+            waKillFreeRdpPid "$pid"
+        fi
+        rm -f "$proc_file" 2>/dev/null
+    done
+}
+
 # Name: 'waWaitForAllProcesses'
 # Role: Wait function with coordination between multiple Winoffice processes, used for Office lock file cleanup
 waWaitForAllProcesses() {
@@ -357,20 +441,7 @@ waWaitForAllProcesses() {
     dprint "WAITING FOR ALL FREERDP PROCESSES TO CLOSE"
     
     # First, try to find and kill any remaining FreeRDP processes
-    for proc_file in "${APPDATA_PATH}"/FreeRDP_Process_*.cproc; do
-        [ -f "$proc_file" ] || continue
-        local pid="$(basename "$proc_file" | sed 's/FreeRDP_Process_\(.*\)\.cproc/\1/')"
-        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-            dprint "Found lingering FreeRDP process $pid, attempting to kill"
-            kill -TERM "$pid" 2>/dev/null
-            sleep 1
-            if kill -0 "$pid" 2>/dev/null; then
-                dprint "Process $pid still running, force killing"
-                kill -KILL "$pid" 2>/dev/null
-            fi
-        fi
-        rm -f "$proc_file" 2>/dev/null
-    done 2>/dev/null
+    waKillRecordedFreeRdp
     
     # Then wait for any remaining processes to finish
     while ls "${APPDATA_PATH}"/FreeRDP_Process_*.cproc &>/dev/null; do
@@ -543,22 +614,9 @@ waLastRun() {
 waResetSystem() {
     dprint "STARTING SYSTEM RESET"
     
-    # 1. Kill all FreeRDP processes
+    # 1. Kill all FreeRDP processes, including the client under podman unshare (#155).
     dprint "KILLING ALL FREERDP PROCESSES"
-    for proc_file in "${APPDATA_PATH}"/FreeRDP_Process_*.cproc; do
-        [ -f "$proc_file" ] || continue
-        local pid="$(basename "$proc_file" | sed 's/FreeRDP_Process_\(.*\)\.cproc/\1/')"
-        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-            dprint "Terminating FreeRDP process $pid"
-            kill -TERM "$pid" 2>/dev/null
-            sleep 1
-            if kill -0 "$pid" 2>/dev/null; then
-                dprint "Force killing FreeRDP process $pid"
-                kill -KILL "$pid" 2>/dev/null
-            fi
-        fi
-        rm -f "$proc_file" 2>/dev/null
-    done
+    waKillRecordedFreeRdp
     
     # 2. Run cleanup
     dprint "RUNNING FULL CLEANUP"
