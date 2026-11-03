@@ -36,6 +36,10 @@ services:
       # dockur turns the guest NIC off when NETWORK starts with N or n, so
       # "nat" boots Windows with no network device. "Y" is its NAT mode.
       NETWORK: "Y"
+      # When NAT fails, dockur starts passt with a log under /var/log and a
+      # pid file under /var/run. Ubuntu's passt AppArmor profile allows /tmp
+      # and refuses those paths, so passt exits and dockur falls back to slirp.
+      PASST_PID: "/tmp/passt.pid"
     # dockur enables forwarding from inside the container. Rootless Podman
     # rejects that write, so set it when the container is created.
     sysctls:
@@ -78,7 +82,11 @@ services:
       - --
       - -c
       - |
-        sed -i -e 's#/usr/sbin/iptables-legacy#/usr/sbin/iptables-nft#g' -e 's#/usr/sbin/ip6tables-legacy#/usr/sbin/ip6tables-nft#g' /run/network.sh || exit 1
+        sed -i \
+          -e 's#/usr/sbin/iptables-legacy#/usr/sbin/iptables-nft#g' \
+          -e 's#/usr/sbin/ip6tables-legacy#/usr/sbin/ip6tables-nft#g' \
+          -e 's#/var/log/passt.log#/tmp/passt.log#g' \
+          /run/network.sh || exit 1
         cat > /run/rdp-proxy.py << 'PY'
         import os, socket, threading
         guest = os.environ.get("VM_NET_IP") or "20.20.20.21"
