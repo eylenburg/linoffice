@@ -44,13 +44,13 @@ modules:
       - pip3 install --verbose --no-index --find-links="file://${PWD}" --prefix=${FLATPAK_DEST} --no-deps --no-compile shiboken6 PySide6-Essentials
     sources:
       - type: file
-        url: https://files.pythonhosted.org/packages/7c/4a/696e3a9ed26436b1b41ca22dd21e7bce214ba1a1e1dea5c84b5627444c65/shiboken6-6.11.3-cp310-abi3-manylinux_2_34_x86_64.whl
-        sha256: e601c957011345c741b88f661a12486f478db881d6777bdf37e3dc7a8d3387c6
+        url: https://files.pythonhosted.org/packages/49/c2/a04fa003b4360e99d8e3fc2829abacf37396ace63ea1cd616402209ec7c6/shiboken6-6.12.0-cp310-abi3-manylinux_2_34_x86_64.whl
+        sha256: 3bde565bb0890044b5c7f63808adddede5abc241e9395a2bfed61919884d6240
         only-arches:
           - x86_64
       - type: file
-        url: https://files.pythonhosted.org/packages/91/23/9692f9b9a7cf89c0e8b99da228a728064aa827dc115b5dc974156bcf14fc/pyside6_essentials-6.11.3-cp310-abi3-manylinux_2_34_x86_64.whl
-        sha256: c6a5c3b58bf55aef6e09a7de690ff6133335014ab81a7f22f56363ea08e8f6a3
+        url: https://files.pythonhosted.org/packages/7b/3c/7597d8dcb36aa8315427635ec6ec9d850ffbad4ce78b9118ac854889f2d3/pyside6_essentials-6.12.0-cp310-abi3-manylinux_2_34_x86_64.whl
+        sha256: 16f4b5e41daf49235ae048458243da9efe5f3d8040f9cc5aa454ce69893d3bd9
         only-arches:
           - x86_64
     cleanup:
@@ -133,8 +133,8 @@ modules:
       - test -x ${FLATPAK_DEST}/bin/sdl-freerdp3
     sources:
       - type: archive
-        url: https://github.com/FreeRDP/FreeRDP/releases/download/3.32.1/freerdp-3.32.1.tar.gz
-        sha256: 3021cf8848efbd0064664e187cb61e6101e4e74a4d8ffb495d9f7715e22d67de
+        url: https://github.com/FreeRDP/FreeRDP/releases/download/3.33.0/freerdp-3.33.0.tar.gz
+        sha256: 80cbcf17a7de00909f2be805c7d93764596cd712046addc18c30594137c0b879
 
   - name: linoffice
     buildsystem: simple
