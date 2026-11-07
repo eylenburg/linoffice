@@ -28,6 +28,76 @@ INTERNET_STATE_FILE = str(linoffice_paths.DATA_DIR / 'internet')
 
 LINOFFICE_CONF_FILE = str(linoffice_paths.CONF_FILE)
 
+# Shown for RDP_DESKTOP_SCALE="inherit" and for older configs that omit the key.
+SCALE_INHERIT_LABEL = "Same as display scaling"
+
+def _conf_assignment_value(content, key):
+    """Return the first assignment of key, or None when the key is absent."""
+    match = re.search(
+        rf'^[ \t]*{re.escape(key)}[ \t]*=[ \t]*(?:"([^"]*)"|\'([^\']*)\'|([^#\n]*?))\s*(?:#.*)?$',
+        content,
+        re.MULTILINE,
+    )
+    if not match:
+        return None
+    value = next(group for group in match.groups() if group is not None)
+    return value.strip()
+
+def _set_conf_assignment(content, key, value, insert_after=None):
+    """Replace the first assignment of key, or insert one line. Other lines stay put."""
+    line = f'{key}="{value}"'
+    pattern = rf'^[ \t]*{re.escape(key)}[ \t]*=.*$'
+    new_content, count = re.subn(pattern, line, content, count=1, flags=re.MULTILINE)
+    if count:
+        return new_content
+    if insert_after:
+        anchor = re.search(
+            rf'^[ \t]*{re.escape(insert_after)}[ \t]*=.*$',
+            content,
+            re.MULTILINE,
+        )
+        if anchor:
+            return content[:anchor.end()] + '\n' + line + content[anchor.end():]
+    if content and not content.endswith('\n'):
+        content += '\n'
+    return content + line + '\n'
+
+def _stored_scale_token(value):
+    """Normalize a stored scale. A trailing percent sign is ignored."""
+    if value is None:
+        return None
+    value = value.strip()
+    if len(value) > 1 and value.endswith('%') and value[:-1].strip().isdigit():
+        value = value[:-1].strip()
+    return value
+
+def _scale_token_from_label(text):
+    """Map a settings combo label to a config token, or None when it is not a scale."""
+    text = (text or "").strip()
+    if text == SCALE_INHERIT_LABEL:
+        return "inherit"
+    if text.endswith('%'):
+        text = text[:-1].strip()
+    if text.isdigit():
+        return text
+    return None
+
+def _select_scale_combo(combo, value, allow_inherit=False):
+    """Select value. A custom integer is added so saving does not replace it with a preset."""
+    if value is None or (allow_inherit and value == "inherit"):
+        if allow_inherit:
+            index = combo.findText(SCALE_INHERIT_LABEL)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+        return
+    label = f"{value}%" if value.isdigit() else value
+    index = combo.findText(label)
+    if index < 0:
+        combo.addItem(label)
+        index = combo.findText(label)
+    if index >= 0:
+        combo.setCurrentIndex(index)
+
 def _version_in_updater_text(text):
     match = re.search(
         r'(?m)^CURRENT_VERSION\s*=\s*["\']([0-9A-Za-z._+-]+)["\']',
@@ -247,6 +317,7 @@ class SettingsWindow(QMainWindow):
         self.ui.checkBox_suspend.toggled.connect(self.mark_settings_changed)
         self.ui.checkBox_network.toggled.connect(self.mark_settings_changed)  # Track network changes
         self.ui.comboBox_scaling.currentTextChanged.connect(self.mark_settings_changed)
+        self.ui.comboBox_desktop_scaling.currentTextChanged.connect(self.mark_settings_changed)
         self.ui.comboBox_date.currentTextChanged.connect(self.mark_settings_changed)
         self.ui.comboBox_decimalseparator.currentTextChanged.connect(self.mark_settings_changed)
         self.ui.lineEdit_currency.textChanged.connect(self.mark_settings_changed)
@@ -270,13 +341,16 @@ class SettingsWindow(QMainWindow):
                     elif 'AUTOPAUSE="off"' in content:
                         self.ui.checkBox_suspend.setChecked(False)
                     
-                    # Set scaling combobox
-                    if 'RDP_SCALE="100"' in content:
-                        self.ui.comboBox_scaling.setCurrentText("100%")
-                    elif 'RDP_SCALE="140"' in content:
-                        self.ui.comboBox_scaling.setCurrentText("140%")
-                    elif 'RDP_SCALE="180"' in content:
-                        self.ui.comboBox_scaling.setCurrentText("180%")
+                    # Set scaling combos. A missing desktop scale means "use display scaling".
+                    _select_scale_combo(
+                        self.ui.comboBox_scaling,
+                        _stored_scale_token(_conf_assignment_value(content, "RDP_SCALE")),
+                    )
+                    _select_scale_combo(
+                        self.ui.comboBox_desktop_scaling,
+                        _stored_scale_token(_conf_assignment_value(content, "RDP_DESKTOP_SCALE")),
+                        allow_inherit=True,
+                    )
                     
                     # Load and populate keyboard comboBox
                     self.populate_keyboard_combo()
@@ -336,10 +410,26 @@ class SettingsWindow(QMainWindow):
         subprocess.Popen([LINOFFICE_SCRIPT, 'manual', 'C:\\Program Files\\Microsoft Office\\root\\Office16\\SETLANG.EXE'])
 
     def save_settings(self):
-        """Save all settings to config files"""
+        """Save all settings to config files. Returns False when the window should stay open."""
         try:
             import re
             registry_settings_changed = False
+            scaling_value = _scale_token_from_label(self.ui.comboBox_scaling.currentText())
+            desktop_value = _scale_token_from_label(self.ui.comboBox_desktop_scaling.currentText())
+            if scaling_value is None or not scaling_value.isdigit():
+                QMessageBox.warning(
+                    self,
+                    "Display scaling",
+                    "Display scaling must be a whole number from 100 to 500.",
+                )
+                return False
+            if desktop_value is None or (desktop_value != "inherit" and not desktop_value.isdigit()):
+                QMessageBox.warning(
+                    self,
+                    "Windows desktop scaling",
+                    "Windows desktop scaling must be a whole number from 100 to 500, or the same as display scaling.",
+                )
+                return False
             # --- Network checkbox logic ---
             network_checked = self.ui.checkBox_network.isChecked()
             if self._initial_network_checked is not None and network_checked != self._initial_network_checked:
@@ -364,16 +454,16 @@ class SettingsWindow(QMainWindow):
                 content = content.replace('AUTOPAUSE="on"', f'AUTOPAUSE="{autopause_value}"')
                 content = content.replace('AUTOPAUSE="off"', f'AUTOPAUSE="{autopause_value}"')
                 
-                # Update RDP_SCALE setting
-                scaling_text = self.ui.comboBox_scaling.currentText()
-                if scaling_text.endswith('%'):
-                    scaling_value = scaling_text[:-1]  # Remove % character
-                else:
-                    scaling_value = scaling_text
-                
-                content = content.replace('RDP_SCALE="100"', f'RDP_SCALE="{scaling_value}"')
-                content = content.replace('RDP_SCALE="140"', f'RDP_SCALE="{scaling_value}"')
-                content = content.replace('RDP_SCALE="180"', f'RDP_SCALE="{scaling_value}"')
+                # Update scale settings. Any stored number is replaced, not only 100, 140, and 180.
+                # Leave RDP_DESKTOP_SCALE absent when it was absent and the user kept "same as display scaling".
+                content = _set_conf_assignment(content, "RDP_SCALE", scaling_value)
+                if desktop_value != "inherit" or _conf_assignment_value(content, "RDP_DESKTOP_SCALE") is not None:
+                    content = _set_conf_assignment(
+                        content,
+                        "RDP_DESKTOP_SCALE",
+                        desktop_value,
+                        insert_after="RDP_SCALE",
+                    )
                 
                 # Update RDP_KBD setting
                 keyboard_data = self.ui.comboBox_keyboard.currentData()
@@ -429,9 +519,11 @@ class SettingsWindow(QMainWindow):
             
             self.settings_changed = False
             self.close()
+            return True
             
         except Exception as e:
             QMessageBox.critical(self, 'Error', f'Failed to save settings: {e}')
+            return False
 
     def closeEvent(self, event):
         """Handle window close event with confirmation dialog if settings changed"""
@@ -442,8 +534,10 @@ class SettingsWindow(QMainWindow):
                                        QMessageBox.Save)
             
             if reply == QMessageBox.Save:
-                self.save_settings()
-                event.accept()
+                if self.save_settings():
+                    event.accept()
+                else:
+                    event.ignore()
             elif reply == QMessageBox.Discard:
                 event.accept()
             else:  # Cancel

@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>389</width>
-    <height>424</height>
+    <width>460</width>
+    <height>468</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -122,35 +122,179 @@
     </layout>
    </item>
    <item row="0" column="0">
-    <layout class="QHBoxLayout" name="horizontalLayout">
+    <layout class="QVBoxLayout" name="verticalLayout_scaling">
      <item>
-      <widget class="QLabel" name="label">
-       <property name="text">
-        <string>Display scaling</string>
-       </property>
-      </widget>
+      <layout class="QHBoxLayout" name="horizontalLayout">
+       <item>
+        <widget class="QLabel" name="label">
+         <property name="text">
+          <string>Display scaling</string>
+         </property>
+         <property name="toolTip">
+          <string>Scale for Office and the other RemoteApp windows. Whole numbers from 100 to 500.</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="comboBox_scaling">
+         <property name="toolTip">
+          <string>Scale for Office and the other RemoteApp windows. Whole numbers from 100 to 500. Store apps still use 100, 140, or 180.</string>
+         </property>
+         <property name="currentText">
+          <string>100%</string>
+         </property>
+         <item>
+          <property name="text">
+           <string>100%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>125%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>140%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>150%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>175%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>180%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>200%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>225%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>250%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>300%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>400%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>500%</string>
+          </property>
+         </item>
+        </widget>
+       </item>
+      </layout>
      </item>
      <item>
-      <widget class="QComboBox" name="comboBox_scaling">
-       <property name="currentText">
-        <string>100%</string>
-       </property>
+      <layout class="QHBoxLayout" name="horizontalLayout_desktop_scale">
        <item>
-        <property name="text">
-         <string>100%</string>
-        </property>
+        <widget class="QLabel" name="label_desktop_scale">
+         <property name="text">
+          <string>Windows desktop scaling</string>
+         </property>
+         <property name="toolTip">
+          <string>Scale for the full Windows desktop. Same as display scaling follows the setting above.</string>
+         </property>
+        </widget>
        </item>
        <item>
-        <property name="text">
-         <string>140%</string>
-        </property>
+        <widget class="QComboBox" name="comboBox_desktop_scaling">
+         <property name="toolTip">
+          <string>Scale for the full Windows desktop. Same as display scaling follows the setting above.</string>
+         </property>
+         <property name="currentText">
+          <string>Same as display scaling</string>
+         </property>
+         <item>
+          <property name="text">
+           <string>Same as display scaling</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>100%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>125%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>140%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>150%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>175%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>180%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>200%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>225%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>250%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>300%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>400%</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>500%</string>
+          </property>
+         </item>
+        </widget>
        </item>
-       <item>
-        <property name="text">
-         <string>180%</string>
-        </property>
-       </item>
-      </widget>
+      </layout>
      </item>
     </layout>
    </item>

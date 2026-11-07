@@ -14,6 +14,7 @@ readonly EC_UNKNOWN=11
 readonly EC_NO_IP=12
 readonly EC_UNSUPPORTED_APP=14
 readonly EC_INVALID_FLAVOR=15
+readonly EC_INVALID_SCALE=16
 
 # PATHS
 readonly SCRIPT_DIR_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
@@ -64,6 +65,11 @@ RDP_KBD=""
 FREERDP_COMMAND=""
 REMOVABLE_MEDIA=""
 RDP_SCALE=100
+RDP_DEVICE_SCALE=100
+# Full Windows desktop (`linoffice.sh windows`). "inherit" uses RDP_SCALE.
+# Older linoffice.conf files omit this key. waLoadConfig keeps that meaning.
+RDP_DESKTOP_SCALE="inherit"
+RDP_DESKTOP_DEVICE_SCALE=100
 AUTOPAUSE="on"
 AUTOPAUSE_TIME="300"
 HIDEF="on"
@@ -96,6 +102,8 @@ trap waCleanupInstance SIGINT SIGTERM SIGHUP EXIT
 waThrowExit() {
     # Declare variables.
     local ERR_CODE="$1"
+    local INVALID_SCALE_KEY="${2:-RDP_SCALE}"
+    local INVALID_SCALE_VALUE="${3-}"
 
     # Throw error.
     case "$ERR_CODE" in
@@ -135,6 +143,10 @@ waThrowExit() {
     "$EC_INVALID_FLAVOR")
         dprint "ERROR: INVALID FLAVOR. EXITING."
         echo -e "Invalid LinOffice flavor.\nPlease ensure 'docker', 'podman' or 'libvirt' are specified as the flavor in the LinOffice configuration file."
+        ;;
+    "$EC_INVALID_SCALE")
+        dprint "ERROR: ${INVALID_SCALE_KEY} MUST BE AN INTEGER. EXITING."
+        echo -e "${INVALID_SCALE_KEY} must be an integer from 100 to 500; received '${INVALID_SCALE_VALUE}'.\nRDP_DESKTOP_SCALE may also be 'inherit'."
         ;;
     esac
 
@@ -658,37 +670,72 @@ waResetSystem() {
 }
 
 # Name: 'waFixScale'
-# Role: Since FreeRDP only supports '/scale' values of 100, 140 or 180, find the closest supported argument to the user's configuration.
+# Role: Validate display scales and choose the nearest device scales.
+# RDP_SCALE and RDP_DESKTOP_SCALE keep any integer from 100 to 500.
+# The device scale, used by Microsoft Store apps, stays on 100, 140, or 180.
 function waFixScale() {
-    # Define variables.
-    local OLD_SCALE=100
-    local VALID_SCALE_1=100
-    local VALID_SCALE_2=140
-    local VALID_SCALE_3=180
+    local SCALE_KEY=""
+    local DEVICE_SCALE_KEY=""
+    local ORIGINAL_SCALE=""
+    local RAW_SCALE=""
+    local SCALE_DIGITS=""
+    local SCALE_VALUE=0
+    local DEVICE_SCALE=0
 
-    # Check for an unsupported value.
-    if [ "$RDP_SCALE" != "$VALID_SCALE_1" ] && [ "$RDP_SCALE" != "$VALID_SCALE_2" ] && [ "$RDP_SCALE" != "$VALID_SCALE_3" ]; then
-        # Save the unsupported scale.
-        OLD_SCALE="$RDP_SCALE"
-
-        # Calculate the absolute differences.
-        local DIFF_1=$(( RDP_SCALE > VALID_SCALE_1 ? RDP_SCALE - VALID_SCALE_1 : VALID_SCALE_1 - RDP_SCALE ))
-        local DIFF_2=$(( RDP_SCALE > VALID_SCALE_2 ? RDP_SCALE - VALID_SCALE_2 : VALID_SCALE_2 - RDP_SCALE ))
-        local DIFF_3=$(( RDP_SCALE > VALID_SCALE_3 ? RDP_SCALE - VALID_SCALE_3 : VALID_SCALE_3 - RDP_SCALE ))
-
-        # Set the final scale to the valid scale value with the smallest absolute difference.
-        if (( DIFF_1 <= DIFF_2 && DIFF_1 <= DIFF_3 )); then
-            RDP_SCALE="$VALID_SCALE_1"
-        elif (( DIFF_2 <= DIFF_1 && DIFF_2 <= DIFF_3 )); then
-            RDP_SCALE="$VALID_SCALE_2"
+    for SCALE_KEY in RDP_SCALE RDP_DESKTOP_SCALE; do
+        ORIGINAL_SCALE="${!SCALE_KEY}"
+        RAW_SCALE="$ORIGINAL_SCALE"
+        RAW_SCALE="${RAW_SCALE#"${RAW_SCALE%%[![:space:]]*}"}"
+        RAW_SCALE="${RAW_SCALE%"${RAW_SCALE##*[![:space:]]}"}"
+        if [ "$SCALE_KEY" = "RDP_SCALE" ]; then
+            DEVICE_SCALE_KEY="RDP_DEVICE_SCALE"
         else
-            RDP_SCALE="$VALID_SCALE_3"
+            DEVICE_SCALE_KEY="RDP_DESKTOP_DEVICE_SCALE"
+            if [ "$RAW_SCALE" = "inherit" ]; then
+                RAW_SCALE="$RDP_SCALE"
+            fi
+        fi
+        if [[ "$RAW_SCALE" == *% ]]; then
+            RAW_SCALE="${RAW_SCALE%\%}"
+            RAW_SCALE="${RAW_SCALE%"${RAW_SCALE##*[![:space:]]}"}"
         fi
 
-        # Print feedback.
-        dprint "WARNING: Unsupported RDP_SCALE value '${OLD_SCALE}'. Defaulting to '${RDP_SCALE}'."
-        echo -e "Unsupported RDP_SCALE value '${OLD_SCALE}'.\nDefaulting to '${RDP_SCALE}'."
-    fi
+        if [[ ! "$RAW_SCALE" =~ ^[+-]?[0-9]+$ ]]; then
+            waThrowExit "$EC_INVALID_SCALE" "$SCALE_KEY" "$ORIGINAL_SCALE"
+            return
+        fi
+
+        SCALE_DIGITS="${RAW_SCALE#[+-]}"
+        while [[ "$SCALE_DIGITS" == 0* ]] && [ "$SCALE_DIGITS" != "0" ]; do
+            SCALE_DIGITS="${SCALE_DIGITS#0}"
+        done
+
+        # Bound the value before arithmetic so a huge number cannot overflow.
+        if [[ "$RAW_SCALE" == -* ]]; then
+            SCALE_VALUE=0
+        elif (( ${#SCALE_DIGITS} > 3 )); then
+            SCALE_VALUE=501
+        else
+            SCALE_VALUE=$(( 10#$SCALE_DIGITS ))
+        fi
+
+        if (( SCALE_VALUE < 100 )); then
+            SCALE_VALUE=100
+            dprint "WARNING: ${SCALE_KEY} value '${ORIGINAL_SCALE}' is below 100. Clamping to '${SCALE_VALUE}'."
+            echo -e "${SCALE_KEY} value '${ORIGINAL_SCALE}' is below 100.\nUsing '${SCALE_VALUE}'."
+        elif (( SCALE_VALUE > 500 )); then
+            SCALE_VALUE=500
+            dprint "WARNING: ${SCALE_KEY} value '${ORIGINAL_SCALE}' is above 500. Clamping to '${SCALE_VALUE}'."
+            echo -e "${SCALE_KEY} value '${ORIGINAL_SCALE}' is above 500.\nUsing '${SCALE_VALUE}'."
+        fi
+
+        DEVICE_SCALE=$(( SCALE_VALUE <= 120 ? 100 : SCALE_VALUE <= 160 ? 140 : 180 ))
+        printf -v "$SCALE_KEY" '%s' "$SCALE_VALUE"
+        printf -v "$DEVICE_SCALE_KEY" '%s' "$DEVICE_SCALE"
+        if [ "$DEVICE_SCALE" != "$SCALE_VALUE" ]; then
+            dprint "NOTICE: Approximating the device scale for ${SCALE_KEY} from '${SCALE_VALUE}' to '${DEVICE_SCALE}'. Desktop scale stays '${SCALE_VALUE}'."
+        fi
+    done
 }
 
 # Name: 'waLoadConfig'
@@ -708,7 +755,13 @@ function waLoadConfig() {
     fi
 
 
-    # Update $RDP_SCALE.
+    # Files created before separate desktop scaling have no RDP_DESKTOP_SCALE.
+    # An empty value means the same thing: use RDP_SCALE.
+    if [ -z "${RDP_DESKTOP_SCALE:-}" ]; then
+        RDP_DESKTOP_SCALE="inherit"
+    fi
+
+    # Resolve RemoteApp and full-desktop scale settings.
     waFixScale
     # Update when $REMOVABLE_MEDIA is null
     waFixRemovableMedia
@@ -1055,7 +1108,8 @@ function waRunCommand() {
         "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
-            /scale:$RDP_SCALE \
+            /scale-desktop:"$RDP_DESKTOP_SCALE" \
+            /scale-device:"$RDP_DESKTOP_DEVICE_SCALE" \
             +dynamic-resolution \
             +auto-reconnect \
             +home-drive \
@@ -1077,7 +1131,8 @@ function waRunCommand() {
         "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
-            /scale:$RDP_SCALE \
+            /scale-desktop:"$RDP_SCALE" \
+            /scale-device:"$RDP_DEVICE_SCALE" \
             +auto-reconnect \
             +home-drive \
             "${LINOFFICE_DRIVE_ARGS[@]}" \
@@ -1097,7 +1152,8 @@ function waRunCommand() {
         "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
-            /scale:$RDP_SCALE \
+            /scale-desktop:"$RDP_SCALE" \
+            /scale-device:"$RDP_DEVICE_SCALE" \
             +auto-reconnect \
             +home-drive \
             "${LINOFFICE_DRIVE_ARGS[@]}" \
@@ -1118,7 +1174,8 @@ function waRunCommand() {
         "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
-            /scale:$RDP_SCALE \
+            /scale-desktop:"$RDP_SCALE" \
+            /scale-device:"$RDP_DEVICE_SCALE" \
             +auto-reconnect \
             +home-drive \
             "${LINOFFICE_DRIVE_ARGS[@]}" \
@@ -1139,7 +1196,8 @@ function waRunCommand() {
         "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
-            /scale:$RDP_SCALE \
+            /scale-desktop:"$RDP_SCALE" \
+            /scale-device:"$RDP_DEVICE_SCALE" \
             +auto-reconnect \
             +home-drive \
             "${LINOFFICE_DRIVE_ARGS[@]}" \
@@ -1160,7 +1218,8 @@ function waRunCommand() {
         "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
             /u:$RDP_USER \
             /p:$RDP_PASS \
-            /scale:$RDP_SCALE \
+            /scale-desktop:"$RDP_SCALE" \
+            /scale-device:"$RDP_DEVICE_SCALE" \
             +auto-reconnect \
             +home-drive \
             "${LINOFFICE_DRIVE_ARGS[@]}" \
@@ -1201,7 +1260,8 @@ function waRunCommand() {
             "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
                 /u:$RDP_USER \
                 /p:$RDP_PASS \
-                /scale:$RDP_SCALE \
+                /scale-desktop:"$RDP_SCALE" \
+                /scale-device:"$RDP_DEVICE_SCALE" \
                 +auto-reconnect \
                 +home-drive \
                 "${LINOFFICE_DRIVE_ARGS[@]}" \
@@ -1233,7 +1293,8 @@ function waRunCommand() {
             "${LINOFFICE_FREERDP_WRAP[@]}" "${FREERDP_COMMAND[@]}" \
                 /u:$RDP_USER \
                 /p:$RDP_PASS \
-                /scale:$RDP_SCALE \
+                /scale-desktop:"$RDP_SCALE" \
+                /scale-device:"$RDP_DEVICE_SCALE" \
                 +auto-reconnect \
                 +home-drive \
                 "${LINOFFICE_DRIVE_ARGS[@]}" \

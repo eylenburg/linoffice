@@ -1,12 +1,18 @@
-# [DISPLAY SCALING FACTOR]
+# [DISPLAY SCALING FACTORS]
 # NOTES:
-# - If an unsupported value is specified, a warning will be displayed.
-# - If an unsupported value is specified, LinOffice will use the closest supported value.
+# - RDP_SCALE sets scaling for Office and the other RemoteApp windows.
+# - RDP_DESKTOP_SCALE sets scaling for the full Windows desktop (`linoffice.sh windows`).
+# - Values outside 100-500 are set to the nearest limit. A value that is not an integer stops the launch.
+# - LinOffice keeps the exact scale. It rounds the device scale, used by Microsoft Store (UWP) apps, to 100, 140, or 180.
+# - An existing linoffice.conf without RDP_DESKTOP_SCALE keeps using RDP_SCALE for both.
+# DEFAULT VALUES:
+# - RDP_SCALE: '140'
+# - RDP_DESKTOP_SCALE: 'inherit' (use RDP_SCALE)
 # VALID VALUES:
-# - '100'
-# - '140'
-# - '180'
+# - Integers from '100' to '500'
+# - 'inherit' for RDP_DESKTOP_SCALE
 RDP_SCALE="140"
+RDP_DESKTOP_SCALE="inherit"
 
 # [MOUNTING REMOVABLE PATHS FOR FILES]
 # NOTES:

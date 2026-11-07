@@ -27,7 +27,7 @@ The project utilises [Winapps](https://github.com/winapps-org/winapps), [Dockur/
 - [x] Automatic deletion of Office lock files (like `~$file.docx`)
 - [x] Force time sync in Windows after Linux host wakes up from sleep, to avoid time drift (time zone is always set to UTC for simplicity)
 - [x] Automatic detection of language, date format, thousand and decimal separator, currency symbol, keyboard layout etc
-- [x] Toggle settings such as display scaling, auto-suspend on/off,  network on/off (to prevent Windows and Office from "phoning home") 
+- [x] Toggle settings such as display scaling (100% to 500%), auto-suspend on/off,  network on/off (to prevent Windows and Office from "phoning home") 
 - [x] Circumvent geo-blocking for the Office installation
 - [x] Install updates for Windows and Office
 - [x] Tidy Quick Access pane in Windows File Explorer
@@ -493,7 +493,7 @@ These are the files that are part of LinOffice and what they do. Paths are from 
 - `apps/word/`, `apps/excel/`, `apps/powerpoint/`, `apps/onenote/`, `apps/outlook/`: Each has `icon.svg` and `info.txt` (display name, Windows executable, categories, and MIME types) used to build the launchers.
 - `config/locale_lang.sh`: Copies `compose.yaml.default` and `linoffice.conf.default` into the config directory, then writes the host language, region, and keyboard layout into those copies. It does not edit the templates in place.
 - `config/compose.yaml.default`: Template for the Podman Compose file. The generated `compose.yaml` creates the Windows container. Users can change the Windows version, RAM, CPU, and disk size here before the first start.
-- `config/linoffice.conf.default`: Template for LinOffice settings. The generated `linoffice.conf` is read by `linoffice.sh` for auto-pause, keyboard layout, display scaling, and extra FreeRDP flags.
+- `config/linoffice.conf.default`: Template for LinOffice settings. The generated `linoffice.conf` is read by `linoffice.sh` for auto-pause, keyboard layout, display scaling (100 to 500, with an optional separate scale for the full Windows desktop), and extra FreeRDP flags. An existing file is kept on update. A missing desktop scale follows the display scale.
 - `config/locale_reg.sh`: Reads decimal and thousand separators, the currency symbol, and the date format from the host, and writes `oem/registry/regional_settings.reg` in the config directory. `install.bat` imports that file inside Windows.
 - `config/languages.csv`: Keyboard layouts. The first column is the FreeRDP layout code.
 - `config/oem/install.bat`: Runs once at the end of the Windows installation, before the desktop is shown. Imports `linoffice.reg` for the system, and `regional_settings.reg` plus `explorer_settings.reg` for the default user. Copies `NetProfileCleanup.ps1` and `TimeSync.ps1` to the Windows directory and creates scheduled tasks for them. Sets the time zone to UTC, runs Win11Debloat, schedules `InstallOffice.ps1` for the next logon, turns on a one-time automatic logon, and reboots.
