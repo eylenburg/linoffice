@@ -157,8 +157,6 @@ modules:
         x-checker-data:
             type: github
             repo: FreeRDP/FreeRDP
-            tag-pattern: '^3\.\d+\.\d+$'
-            # stay on major version 3
 
   - name: linoffice
     buildsystem: simple
