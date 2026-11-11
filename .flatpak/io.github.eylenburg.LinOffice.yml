@@ -157,6 +157,7 @@ modules:
         x-checker-data:
             type: github
             repo: FreeRDP/FreeRDP
+            asset-name: freerdp-${version}.tar.gz            
 
   - name: linoffice
     buildsystem: simple
