@@ -166,6 +166,8 @@ If you do want to change something, edit the templates **before** you run the Li
 Windows 11 Pro is the default. Windows 10 is a bit snappier. To install it, replace `VERSION: "11"` with `VERSION: "10"` in `config/compose.yaml.default` before the first start.
 
 Mainstream support for Windows 10 ended in October 2025. After installation you can use Microsoft Activation Scripts (MAS) to receive Extended Security Updates until 2028. Alternatively, Windows 10 LTSC 2021 still receives security updates until 2032. For that image, set `VERSION` to `https://archive.org/download/Windows10EnterpriseLTSC202164Bit/en-us_windows_10_enterprise_ltsc_2021_x64_dvd_d289cf96.iso`.
+
+During setup, choose either the configured `VERSION` download or a local ISO. The graphical installer provides a file chooser; terminal setup and Quickstart also accept a path or a file dragged into the terminal. A local ISO takes precedence over `VERSION` and must remain accessible to Podman: an already running container can continue if the file is removed, but Podman needs it to restart the container. Automatic installation depends on the ISO being supported by dockur/windows. The choice is saved for setup retries in `iso-source.yaml` in the LinOffice config directory. To change it before the container is created, remove that file and start setup again. Changing the source after installation can trigger a reinstall.
 </details>
 
 
@@ -175,7 +177,7 @@ Mainstream support for Windows 10 ended in October 2025. After installation you 
 cd "$HOME/.local/bin/linoffice" && python3 gui/linoffice.py
 ```
 
-This opens the installer. It downloads about 8 GB and installs Windows, then Office. On a 2023 mid-range laptop with a 250 Mbps connection, that took about 15 minutes (about 3 minutes to download Windows, 8 minutes to install it, and 4 minutes to download and install Office). 
+This opens the installer. It installs Windows, then downloads and installs Office. If using a downloaded Windows image instead of the local ISO, it also downloads Windows. On a 2023 mid-range laptop with a 250 Mbps connection, downloading and installing both took about 15 minutes (about 3 minutes to download Windows, 8 minutes to install it, and 4 minutes to download and install Office).
 
 When it finishes, Word, Excel, PowerPoint, OneNote, Outlook, and LinOffice should appear in your application menu.
 
@@ -199,6 +201,8 @@ curl -sSL https://github.com/eylenburg/linoffice/raw/refs/heads/main/quickstart.
 
 >[!NOTE]
 >The script will install Podman, Podman-Compose, FreeRDP3, Python3 and PySide6 on your computer. If they are not available in your repo, they will be installed via Flatpak or Pip where possible.
+
+Quickstart downloads the latest released LinOffice, not a local checkout. ISO selection is available once a release includes it; older releases use their existing compose configuration.
 
 
 # Updating
@@ -473,15 +477,15 @@ Please note that the setup script (`setup.sh`) currently still expects the origi
 
 # For developers
 
-These are the files that are part of LinOffice and what they do. Paths are from the repository root. Setup creates `compose.yaml`, `linoffice.conf`, and `regional_settings.reg` in the config directory.
+These are the files that are part of LinOffice and what they do. Paths are from the repository root. Setup creates `compose.yaml`, `iso-source.yaml`, `linoffice.conf`, and `regional_settings.reg` in the config directory.
 
 <details><summary>File list</summary>
 
 - `lib/paths.sh` and `lib/paths.py`: Decide the application directory, the writable config directory, and the data directory. See `lib/README.md`.
-- `setup.sh`: Install script. Checks that requirements and dependencies are present, runs `config/locale_reg.sh` and `config/locale_lang.sh`, downloads Windows and creates the virtual machine, installs Office, connects with RDP, runs `FirstRDPRun.ps1`, and creates application launchers. Flags: `--desktop`, `--firstrun`, `--installoffice`, `--healthcheck`, `--refresh-oem`.
+- `setup.sh`: Install script. Checks requirements, configures locale, selects a Windows ISO source and creates the virtual machine, installs Office, connects with RDP, runs `FirstRDPRun.ps1`, and creates application launchers. Flags: `--desktop`, `--firstrun`, `--installoffice`, `--healthcheck`, `--refresh-oem`.
 - `linoffice.sh`: Main script. Starts, resumes, or pauses the Podman container and runs the FreeRDP command for Office and the other Windows programs. Also implements `refresh-oem`, which copies the current OEM scripts into an existing virtual machine.
 - `uninstall.sh`: Asks before it deletes anything. Removes the application launchers, offers to remove packages listed in `installed_dependencies` when that file exists, offers to remove a Python virtual environment, offers to remove the `LinOffice` container and the `linoffice_data` volume, and offers to delete the data directory and a config directory that lives outside the application folder. It deletes the application folder unless that folder is a system location such as `/usr`, `/app`, or `/nix/store`.
-- `updater.py`: Compares `CURRENT_VERSION` with the latest non-draft, non-prerelease GitHub release and replaces the application files. It keeps an existing `compose.yaml`, `linoffice.conf`, and `oem/registry/regional_settings.reg`. The Flatpak does not use this updater.
+- `updater.py`: Compares `CURRENT_VERSION` with the latest non-draft, non-prerelease GitHub release and replaces the application files. It keeps an existing `compose.yaml`, `iso-source.yaml`, `linoffice.conf`, and `oem/registry/regional_settings.reg`. The Flatpak does not use this updater.
 - `gui/linoffice.py`: Starts `gui/installer/installer.py` when setup is not finished, and `gui/mainwindow.py` when the `LinOffice` container exists and `setup_progress.log` contains `office_installed`. If those two facts disagree, it asks which one to open.
 - `gui/mainwindow.py`: The main window: Office launchers, settings, tools, troubleshooting, and the in-app updater.
 - `gui/splash.py`: Small window shown while the Windows container is starting. `linoffice.sh` launches it.
@@ -491,7 +495,7 @@ These are the files that are part of LinOffice and what they do. Paths are from 
 - `gui/installer/welcome.ui`, `gui/installer/install_progress.ui`, `gui/installer/done.ui`: Qt Designer files for the installer.
 - `apps/desktop/*.desktop`: Launcher templates for LinOffice and the Office apps. `setup.sh` replaces `/PATH/` with the install directory. The Flatpak exports its own copies.
 - `apps/word/`, `apps/excel/`, `apps/powerpoint/`, `apps/onenote/`, `apps/outlook/`: Each has `icon.svg` and `info.txt` (display name, Windows executable, categories, and MIME types) used to build the launchers.
-- `config/locale_lang.sh`: Copies `compose.yaml.default` and `linoffice.conf.default` into the config directory, then writes the host language, region, and keyboard layout into those copies. It does not edit the templates in place.
+- `config/locale_lang.sh`: Copies `linoffice.conf.default` and seeds a missing `compose.yaml`, then writes the host language, region, and keyboard layout into the generated files. It does not edit the templates in place.
 - `config/compose.yaml.default`: Template for the Podman Compose file. The generated `compose.yaml` creates the Windows container. Users can change the Windows version, RAM, CPU, and disk size here before the first start.
 - `config/linoffice.conf.default`: Template for LinOffice settings. The generated `linoffice.conf` is read by `linoffice.sh` for auto-pause, keyboard layout, display scaling (100 to 500, with an optional separate scale for the full Windows desktop), and extra FreeRDP flags. An existing file is kept on update. A missing desktop scale follows the display scale.
 - `config/locale_reg.sh`: Reads decimal and thousand separators, the currency symbol, and the date format from the host, and writes `oem/registry/regional_settings.reg` in the config directory. `install.bat` imports that file inside Windows.
@@ -522,7 +526,7 @@ These are the files that are part of LinOffice and what they do. Paths are from 
 <details><summary>Where are the files saved?</summary>
 
 - **App files:** the folder that contains `linoffice.sh`. An install from this repository is usually `~/.local/bin/linoffice`. A Flatpak keeps the application under `/app`, which is removed with the Flatpak itself.
-- **Config:** `compose.yaml`, `linoffice.conf`, and the working `oem/` directory. A new install uses `${XDG_CONFIG_HOME:-~/.config}/linoffice`. If `config/compose.yaml` or `config/linoffice.conf` already exists next to `linoffice.sh`, that folder keeps being used.
+- **Config:** `compose.yaml`, `iso-source.yaml`, `linoffice.conf`, and the working `oem/` directory. A new install uses `${XDG_CONFIG_HOME:-~/.config}/linoffice`. If `config/compose.yaml` or `config/linoffice.conf` already exists next to `linoffice.sh`, that folder keeps being used.
 - **Data:** `windows_install.log`, `setup_output.log`, `setup_progress.log`, `registry_override.conf`, and the suspend marker. The Flatpak writes these in `~/.var/app/io.github.eylenburg.LinOffice/data/linoffice/`. An install from this repository writes them in `~/.local/share/linoffice/`. When `~/.local/share/linoffice` already exists, LinOffice keeps using it, including from the Flatpak.
 - **Desktop files:** `${XDG_DATA_HOME:-~/.local/share}/applications`, unless `LINOFFICE_APPLICATIONS_DIR` is set. The Flatpak exports its own launchers and does not write these files.
 - **Windows VM:** Podman project name `linoffice`, container `LinOffice`, volume `linoffice_data` (`podman rm -f LinOffice && podman volume rm linoffice_data`).

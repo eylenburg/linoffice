@@ -13,13 +13,14 @@ services:
     image: ghcr.io/dockur/windows:latest
     container_name: LinOffice # Created Docker VM Name.
     environment:
-      # Version of Windows to configure. For valid options, visit:
+      # Windows version or ISO URL to download when no local ISO is selected.
+      # For valid options, visit:
       # https://github.com/dockur/windows?tab=readme-ov-file#how-do-i-select-the-windows-version
       # https://github.com/dockur/windows?tab=readme-ov-file#how-do-i-install-a-custom-image
       # VERSION: "10" to use Windows 10
       # VERSION: "https://archive.org/download/Windows10EnterpriseLTSC202164Bit/en-us_windows_10_enterprise_ltsc_2021_x64_dvd_d289cf96.iso" to use Windows 10 LTSC 2021
       # By default, Windows 11 Pro is selected
-      VERSION: "11" 
+      VERSION: "11"
       # These language settings are automatically set by the setup script, no need to change here
       LANGUAGE: "English"
       REGION: "en-001"
@@ -57,7 +58,6 @@ services:
       - data:/storage:Z # Mount volume 'data' to use as Windows 'C:' drive.
       #- ${HOME}:/shared:z # Mount Linux user home directory @ '\\host.lan\Data'. 
       - ./oem:/oem:Z # Enables automatic post-install execution of 'oem/install.bat'
-      #- /home/user/Win11.iso:/boot.iso # Uncomment to use a custom Windows ISO. If specified, 'VERSION' (e.g. 'tiny11') will be ignored. Custom ISO may not work if stored on btrfs formatted drive!
       # SELinux: ":Z" means the volume will only be available in this container, ":z" means the volume can also be accessed by other containers
     devices:
       - /dev/kvm # Enable KVM.

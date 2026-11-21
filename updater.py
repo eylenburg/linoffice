@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 import zipfile
 import io
-import os
 import shutil
 from pathlib import Path
 import re
@@ -14,7 +15,7 @@ REPO_OWNER = "eylenburg"
 REPO_NAME = "linoffice"
 CURRENT_VERSION = "3.1.0"
 GITHUB_API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases"
-PRESERVE_FILES = {"config/compose.yaml", "config/linoffice.conf", "config/oem/registry/regional_settings.reg"}
+PRESERVE_FILES = {"config/compose.yaml", "config/iso-source.yaml", "config/linoffice.conf", "config/oem/registry/regional_settings.reg"}
 GITHUB_TOKEN = None  # Can replace with GitHub Personal Access Token if hitting API limits
 
 def get_latest_release():
@@ -45,20 +46,20 @@ def get_latest_release():
         print(f"Error fetching releases: {e}")
         return None
 
-def version_tuple(v):
+def version_tuple(v: str) -> tuple[int, ...]:
     return tuple(map(int, (v.split("."))))
 
-def compare_versions(current_version, latest_version):
+def compare_versions(current_version: str, latest_version: str) -> bool:
     """Compare two version strings."""
     return version_tuple(latest_version) > version_tuple(current_version)
 
-def major_version(v):
+def major_version(v: str) -> int:
     try:
         return int(v.split(".")[0])
     except Exception:
         return -1
 
-def download_and_update(asset_url, current_dir):
+def download_and_update(asset_url: str, current_dir: str | Path) -> bool:
     """Download and extract the new release, preserving specified files."""
     try:
         parsed_url = urllib.parse.urlparse(asset_url)
@@ -173,11 +174,11 @@ def main():
 
     current_dir = Path(sys.argv[0]).parent
     if download_and_update(asset_url, current_dir):
-        lib_dir = Path(sys.argv[0]).resolve().parent / "lib"
-        if str(lib_dir) not in sys.path:
-            sys.path.insert(0, str(lib_dir))
+        project_dir = Path(__file__).resolve().parent
+        if str(project_dir) not in sys.path:
+            sys.path.insert(0, str(project_dir))
         try:
-            from paths import CONFIG_DIR
+            from lib.paths import CONFIG_DIR
             print("User config is in %s" % CONFIG_DIR)
         except Exception as exc:
             print("Update applied. Could not resolve the user config directory: %s" % exc)

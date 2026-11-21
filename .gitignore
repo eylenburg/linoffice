@@ -1,4 +1,5 @@
 config/oem/registry/regional_settings.reg
 config/compose.yaml
+config/iso-source.yaml
 config/linoffice.conf
 __pycache__/

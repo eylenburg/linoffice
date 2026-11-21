@@ -37,14 +37,14 @@ _STATE_MARKERS = (
 )
 
 
-def _env(name):
+def _env(name: str) -> str | None:
     value = os.environ.get(name)
     if value is None or value == "":
         return None
     return value
 
 
-def _find_prefix_from(start):
+def _find_prefix_from(start: Path) -> Path | None:
     cur = Path(start).resolve()
     if cur.is_file():
         cur = cur.parent
@@ -54,11 +54,11 @@ def _find_prefix_from(start):
     return None
 
 
-def _has_state(directory):
+def _has_state(directory: Path) -> bool:
     return any((directory / name).is_file() for name in _STATE_MARKERS)
 
 
-def _resolve():
+def _resolve() -> dict[str, Path]:
     user_prefix = _env("LINOFFICE_PREFIX")
     prefix = None
     if user_prefix:
@@ -145,16 +145,16 @@ VENV_DIR = PREFIX / "venv"
 LEGACY_VENV_DIR = Path.home() / ".local" / "bin" / "linoffice" / "venv"
 
 
-def _same_path(left, right):
+def _same_path(left: Path, right: Path) -> bool:
     return os.path.realpath(str(left)) == os.path.realpath(str(right))
 
 
-def ensure_dirs():
+def ensure_dirs() -> None:
     (CONFIG_DIR / "oem" / "registry").mkdir(parents=True, exist_ok=True)
     (DATA_DIR / "instances").mkdir(parents=True, exist_ok=True)
 
 
-def _normalize_oem_volume(compose_file):
+def _normalize_oem_volume(compose_file: Path) -> None:
     """Point a freshly copied compose file at ./oem next to itself."""
     try:
         text = compose_file.read_text(encoding="utf-8")
@@ -171,7 +171,7 @@ def _normalize_oem_volume(compose_file):
         compose_file.write_text("\n".join(lines) + ("\n" if text.endswith("\n") else ""), encoding="utf-8")
 
 
-def sync_oem_templates():
+def sync_oem_templates() -> None:
     """Copy missing OEM templates into the working oem directory. Never overwrite."""
     src = OEM_TEMPLATES_DIR
     dst = OEM_DIR
@@ -191,7 +191,7 @@ def sync_oem_templates():
         shutil.copy2(path, target)
 
 
-def seed_config():
+def seed_config() -> dict[str, bool]:
     """Copy templates into CONFIG_DIR when the generated files are missing.
 
     Does not overwrite compose.yaml, linoffice.conf, or any existing oem file.
@@ -215,7 +215,7 @@ def seed_config():
     return created
 
 
-def read_data_path(relative):
+def read_data_path(relative: str | Path) -> Path:
     """DATA_DIR/relative if it exists, else the legacy data path, else DATA_DIR/relative."""
     primary = DATA_DIR / relative
     legacy = LEGACY_DATA_DIR / relative
@@ -226,7 +226,7 @@ def read_data_path(relative):
     return primary
 
 
-def legacy_fallback_copy(relative):
+def legacy_fallback_copy(relative: str | Path) -> None:
     """Copy DATA_DIR/relative onto ~/.local/share/linoffice/relative when those paths differ."""
     primary = DATA_DIR / relative
     legacy = LEGACY_DATA_DIR / relative
@@ -238,7 +238,7 @@ def legacy_fallback_copy(relative):
     shutil.copy2(str(primary), str(legacy))
 
 
-def find_venv():
+def find_venv() -> Path:
     """Return PREFIX/venv, or the legacy quickstart venv if that is the one that exists."""
     if (VENV_DIR / "bin" / "activate").is_file():
         return VENV_DIR

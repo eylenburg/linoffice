@@ -41,6 +41,11 @@ linoffice_remove_generated_setup() {
         echo "Removed $config/compose.yaml"
         removed=1
       fi
+      if [[ -f "$config/iso-source.yaml" ]]; then
+        rm -f "$config/iso-source.yaml"
+        echo "Removed $config/iso-source.yaml"
+        removed=1
+      fi
       if [[ -f "$config/linoffice.conf" ]]; then
         rm -f "$config/linoffice.conf"
         echo "Removed $config/linoffice.conf"
@@ -90,7 +95,7 @@ linoffice_remove_generated_setup() {
   fi
 }
 
-echo -e "This will delete the LinOffice container and the Windows virtual machine (volume linoffice_data).\nIt will also remove generated setup files such as compose.yaml, linoffice.conf, and the setup progress, so the next setup starts from scratch.\nThe LinOffice program itself is not removed."
+echo -e "This will delete the LinOffice container and the Windows virtual machine (volume linoffice_data).\nIt will also remove generated setup files such as compose.yaml, iso-source.yaml, linoffice.conf, and the setup progress, so the next setup starts from scratch.\nThe LinOffice program itself is not removed."
 
 read -p "Are you sure you want to proceed? (y/N): " response
 response=$(echo "$response" | tr '[:upper:]' '[:lower:]')
@@ -98,7 +103,11 @@ response=$(echo "$response" | tr '[:upper:]' '[:lower:]')
 if [[ "$response" == "y" || "$response" == "yes" ]]; then
     echo "Deleting LinOffice container and data..."
     if [[ -n "$COMPOSE_FILE" && -f "$COMPOSE_FILE" ]]; then
-        (cd "$CONFIG_DIR" && podman-compose -p linoffice --file "$COMPOSE_FILE" down) >/dev/null 2>&1 || true
+        compose_files=(--file "$COMPOSE_FILE")
+        if [[ -f "$CONFIG_DIR/iso-source.yaml" ]]; then
+            compose_files+=(--file "$CONFIG_DIR/iso-source.yaml")
+        fi
+        (cd "$CONFIG_DIR" && podman-compose -p linoffice "${compose_files[@]}" down) >/dev/null 2>&1 || true
     fi
     # Podman runs on the host. /app is not a host path, so leave the installer directory.
     cd "${HOME:-/}"
