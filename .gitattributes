@@ -4,3 +4,5 @@ config/compose.yaml                         export-ignore
 config/linoffice.conf                       export-ignore
 README.md                                   export-ignore
 screenshot*.png                              export-ignore
+
+* text=auto eol=lf
