@@ -3,6 +3,20 @@ config/oem/registry/regional_settings.reg   export-ignore
 config/compose.yaml                         export-ignore
 config/linoffice.conf                       export-ignore
 README.md                                   export-ignore
-screenshot*.png                              export-ignore
+screenshot*.png                             export-ignore
 
+# Default: LF in the repository and on checkout.
 * text=auto eol=lf
+
+*.png binary
+
+# A trailing CR in Exec= breaks Linux app launchers.
+*.desktop text eol=lf
+
+# cmd.exe, reg import, and some Windows tools misparse LF-only files.
+# Git stores LF; checkout, git archive, and GitHub zips get CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.reg text eol=crlf
+config/oem/OfficeConfiguration.xml text eol=crlf

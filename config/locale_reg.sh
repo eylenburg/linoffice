@@ -63,27 +63,31 @@ escape_for_registry() {
     echo "$input" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+# Write one registry line with CRLF. `reg import` expects Windows line endings.
+reg_line() {
+    printf '%s\r\n' "$1"
+}
+
 # Function to create registry content
 create_registry_content() {
     local hive="$1"
 
-    : > "$TEMP_FILE"
     {
-        echo "Windows Registry Editor Version 5.00"
-        echo
-        echo "[${hive}\\Control Panel\\International]"
-        [ -n "$DECIMAL_SEP" ] && echo "\"sDecimal\"=\"$DECIMAL_SEP\""
-        [ -n "$THOUSAND_SEP" ] && echo "\"sThousand\"=\"$THOUSAND_SEP\""
-        [ -n "$CURRENCY_SYMBOL" ] && echo "\"sCurrency\"=\"$CURRENCY_SYMBOL\""
-        [ -n "$MON_DECIMAL_SEP" ] && echo "\"sMonDecimalSep\"=\"$MON_DECIMAL_SEP\""
-        [ -n "$MON_THOUSAND_SEP" ] && echo "\"sMonThousandSep\"=\"$MON_THOUSAND_SEP\""
-        [ -n "$WIN_SHORT_DATE" ] && echo "\"sShortDate\"=\"$WIN_SHORT_DATE\""
-        [ -n "$DATE_SEP" ] && echo "\"sDate\"=\"$DATE_SEP\""
-        echo "\"sTimeFormat\"=\"HH:mm:ss tt\""
-        echo "\"sShortTime\"=\"HH:mm tt\""
-        echo "\"iTime\"=\"1\""
-        echo "\"iMeasure\"=\"0\""
-    } >> "$TEMP_FILE"
+        reg_line "Windows Registry Editor Version 5.00"
+        reg_line ""
+        reg_line "[${hive}\\Control Panel\\International]"
+        [ -n "$DECIMAL_SEP" ] && reg_line "\"sDecimal\"=\"$DECIMAL_SEP\""
+        [ -n "$THOUSAND_SEP" ] && reg_line "\"sThousand\"=\"$THOUSAND_SEP\""
+        [ -n "$CURRENCY_SYMBOL" ] && reg_line "\"sCurrency\"=\"$CURRENCY_SYMBOL\""
+        [ -n "$MON_DECIMAL_SEP" ] && reg_line "\"sMonDecimalSep\"=\"$MON_DECIMAL_SEP\""
+        [ -n "$MON_THOUSAND_SEP" ] && reg_line "\"sMonThousandSep\"=\"$MON_THOUSAND_SEP\""
+        [ -n "$WIN_SHORT_DATE" ] && reg_line "\"sShortDate\"=\"$WIN_SHORT_DATE\""
+        [ -n "$DATE_SEP" ] && reg_line "\"sDate\"=\"$DATE_SEP\""
+        reg_line "\"sTimeFormat\"=\"HH:mm:ss tt\""
+        reg_line "\"sShortTime\"=\"HH:mm tt\""
+        reg_line "\"iTime\"=\"1\""
+        reg_line "\"iMeasure\"=\"0\""
+    } > "$TEMP_FILE"
 }
 
 # Get current locale settings
