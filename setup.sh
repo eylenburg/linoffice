@@ -28,7 +28,9 @@ SUCCESS_FILE="${APPDATA_PATH}/success"
 PROGRESS_FILE="${APPDATA_PATH}/setup_progress.log"
 ISO_SOURCE_LEGACY_RESUME=false
 if [[ -f "$PROGRESS_FILE" ]] && grep -qx "requirements_completed" "$PROGRESS_FILE" &&
-   ! grep -qx "iso_source_selection" "$PROGRESS_FILE"; then
+   ! grep -qx "iso_source_selection" "$PROGRESS_FILE" &&
+   ! grep -qx "iso_source_selection_started" "$PROGRESS_FILE" &&
+   ! grep -qx "iso_source_selected" "$PROGRESS_FILE"; then
     ISO_SOURCE_LEGACY_RESUME=true
 fi
 OUTPUT_LOG="${APPDATA_PATH}/setup_output.log"
@@ -1959,7 +1961,6 @@ fi
 # Check requirements if not already completed
 if ! check_progress "$PROGRESS_REQUIREMENTS"; then
     if check_requirements; then
-        mark_progress "iso_source_selection" || exit_with_error "Could not save ISO selection state."
         mark_progress "$PROGRESS_REQUIREMENTS"
     else
         echo "Requirements check failed. Cannot proceed with container setup."
@@ -1974,9 +1975,11 @@ check_linoffice_container
 if [ "$CONTAINER_EXISTS" -eq 0 ] && ! check_progress "$PROGRESS_CONTAINER"; then
     print_info "Container does not exist, proceeding with setup and creation."
     if ! $ISO_SOURCE_LEGACY_RESUME || [[ -f "$LINOFFICE_CONFIG_DIR/iso-source.yaml" ]]; then
+        mark_progress "iso_source_selection_started" || exit_with_error "Could not save ISO selection state."
         if ! python3 -u "$LINOFFICE_PREFIX/lib/iso_source.py"; then
             exit_with_error "Windows ISO selection failed."
         fi
+        mark_progress "iso_source_selected" || exit_with_error "Could not save ISO selection state."
         if ! base_compose=$($COMPOSE_COMMAND -p linoffice --file "$COMPOSE_FILE" config); then
             exit_with_error "Could not inspect the compose file for existing ISO mounts."
         fi
@@ -2003,7 +2006,7 @@ if [ "$CONTAINER_EXISTS" -eq 0 ] && ! check_progress "$PROGRESS_CONTAINER"; then
     fi
     setup_logfile
     if create_container; then
-        mark_progress "$PROGRESS_CONTAINER"
+        mark_progress "$PROGRESS_CONTAINER" || exit_with_error "Could not save container setup state."
     else
         exit_with_error "Container creation failed"
     fi
@@ -2035,9 +2038,25 @@ if ! check_progress "$PROGRESS_OFFICE" || [ "$FIRSTRUN" = true ]; then
     if ! check_success; then
         exit_with_error "Office installation failed or timed out"
     fi
-    mark_progress "$PROGRESS_OFFICE"
+    mark_progress "$PROGRESS_OFFICE" || exit_with_error "Could not save Office installation state."
 else
     print_info "Office installation already completed, skipping..."
+fi
+
+# The running container retains its bind mount even after the compose overlay changes.
+# Recreate it only after installation is complete, preserving the persistent VM volume.
+if [[ -f "$LINOFFICE_CONFIG_DIR/iso-source.yaml" ]] &&
+   grep -Fq "target: /custom.iso" "$LINOFFICE_CONFIG_DIR/iso-source.yaml"; then
+    print_info "Removing the local ISO mount from the installed LinOffice container..."
+    if ! linoffice_compose down; then
+        exit_with_error "Could not stop the LinOffice container to release the local ISO mount."
+    fi
+    if ! python3 -u "$LINOFFICE_PREFIX/lib/iso_source.py" --installation-complete; then
+        exit_with_error "Could not disable the local ISO mount after installation."
+    fi
+    if ! linoffice_compose up -d; then
+        exit_with_error "Could not restart LinOffice without the local ISO mount."
+    fi
 fi
 
 # Install desktop files if not already completed

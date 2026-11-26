@@ -124,11 +124,39 @@ def save_selection(selection: dict[str, str]) -> None:
     write_source(content)
 
 
+def mark_installation_complete() -> None:
+    if not SOURCE_FILE.is_file():
+        return
+    content = SOURCE_FILE.read_text(encoding="utf-8")
+    header = content.split("\n", 1)[0]
+    if not header.startswith(HEADER):
+        raise ValueError(f"Invalid ISO selection file: {SOURCE_FILE}")
+    try:
+        selection = json.loads(header[len(HEADER):])
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid ISO selection file: {SOURCE_FILE}") from exc
+    if not isinstance(selection, dict):
+        raise ValueError(f"Invalid ISO selection file: {SOURCE_FILE}")
+    if selection.get("mode") != "local":
+        return
+    if not isinstance(selection.get("path"), str):
+        raise ValueError(f"Invalid ISO selection file: {SOURCE_FILE}")
+    write_source(
+        HEADER + json.dumps(selection, ensure_ascii=True) + "\n"
+        "services:\n  windows:\n    {}\n"
+    )
+
+
 def legacy_resume() -> bool:
     progress = DATA_DIR / "setup_progress.log"
     if progress.is_file():
         steps = progress.read_text().splitlines()
-        if "requirements_completed" in steps and "iso_source_selection" not in steps:
+        if (
+            "requirements_completed" in steps
+            and "iso_source_selection" not in steps
+            and "iso_source_selection_started" not in steps
+            and "iso_source_selected" not in steps
+        ):
             return True
     return False
 
@@ -141,9 +169,12 @@ def container_exists() -> bool:
 
 
 def main() -> None:
+    if "--installation-complete" in sys.argv:
+        mark_installation_complete()
+        return
     if "--quickstart" in sys.argv and container_exists():
         print("Existing container detected; keeping its Windows ISO source.")
-        print("If it uses a local ISO, Podman still needs that file when restarting the container.")
+        print("Keep a mounted local ISO accessible until the initial setup completes.")
         return
     if SOURCE_FILE.exists():
         content = SOURCE_FILE.read_text(encoding="utf-8")
