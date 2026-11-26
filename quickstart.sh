@@ -701,6 +701,7 @@ download_latest() {
   local preserve_rel backup_dir=""
   local -a PRESERVE_REL=(
     "config/compose.yaml"
+    "config/iso-source.yaml"
     "config/linoffice.conf"
     "config/oem/registry/regional_settings.reg"
   )
@@ -768,6 +769,13 @@ start_linoffice() {
   if [[ ! -f "$LINOFFICE_SCRIPT" ]]; then
     echo "Error: $LINOFFICE_SCRIPT not found. Please check the installation."
     exit 1
+  fi
+
+  if [[ -f "$TARGET_DIR/lib/iso_source.py" ]]; then
+    "$PYTHON_CMD" -u "$TARGET_DIR/lib/iso_source.py" --quickstart
+  else
+    echo "Warning: this LinOffice release does not support ISO selection during setup."
+    echo "It will use the Windows source configured in its compose file."
   fi
 
   echo "Running $LINOFFICE_SCRIPT with $PYTHON_CMD..."

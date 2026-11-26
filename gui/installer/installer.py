@@ -1,29 +1,42 @@
 import sys
 import re
+import json
 import subprocess
 import os
 import signal
 import time
 from pathlib import Path
+from typing import TypeVar
 
-_LIB_DIR = Path(__file__).resolve().parents[2] / "lib"
-if str(_LIB_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIB_DIR))
-from paths import SETUP_SCRIPT, read_data_path
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+from lib.paths import SETUP_SCRIPT, read_data_path
 
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QDialog, QLabel,
-    QPushButton, QStackedWidget, QProgressBar, QTextEdit, QMessageBox
+    QPushButton, QStackedWidget, QProgressBar, QTextEdit, QMessageBox, QFileDialog
 )
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtGui import QTextCursor, QDesktopServices
-from PySide6.QtCore import Qt, QFile, QTimer, QProcess, QIODevice, QUrl
+from PySide6.QtCore import Qt, QFile, QTimer, QProcess, QProcessEnvironment, QIODevice, QUrl
 
-def strip_ansi_codes(text):
+_Widget = TypeVar("_Widget", bound=QWidget)
+
+
+def _required_child(parent: QWidget, widget_type: type[_Widget], name: str) -> _Widget:
+    widget = parent.findChild(widget_type, name)
+    if widget is None:
+        raise RuntimeError(f"Required installer widget {name!r} was not found.")
+    return widget
+
+
+def strip_ansi_codes(text: str) -> str:
     ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
     return ansi_escape.sub('', text)
 
-def ansi_to_html(text):
+
+def ansi_to_html(text: str) -> str:
     # Escape HTML special chars
     text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
@@ -36,7 +49,7 @@ def ansi_to_html(text):
         '33': 'gold', '1;33': 'gold', '0;33': 'gold',
     }
 
-    def repl(m):
+    def repl(m: re.Match[str]) -> str:
         code = m.group('code')
         if code == '0':  # reset
             return '</span>'
@@ -62,7 +75,7 @@ def ansi_to_html(text):
     return text
 
 class Wizard(QWidget):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         # UI files are loaded by a relative path.
         os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -74,6 +87,10 @@ class Wizard(QWidget):
         self.welcome_page = self.load_ui("welcome.ui")
         self.install_page = self.load_ui("install_progress.ui")
         self.done_page = self.load_ui("done.ui")
+        self.progress_bar = _required_child(self.install_page, QProgressBar, "progressBar")
+        self.terminal_output = _required_child(self.install_page, QTextEdit, "terminalOutput")
+        self.copy_output_button = self.install_page.findChild(QPushButton, "copyOutputButton")
+        self.abort_button = _required_child(self.install_page, QPushButton, "abortButton")
 
         self.stack.addWidget(self.welcome_page)  # index 0
         self.stack.addWidget(self.install_page)  # index 1
@@ -86,7 +103,7 @@ class Wizard(QWidget):
         self.back_btn.clicked.connect(self.prev_page)
         self.next_btn.clicked.connect(self.next_page)
 
-        self.last_error_line = None # for tracking the last error if setup exists with error
+        self.last_error_line: str | None = None
 
         nav_layout = QHBoxLayout()
         nav_layout.addWidget(self.back_btn)
@@ -99,19 +116,20 @@ class Wizard(QWidget):
         self.setLayout(layout)
 
         # For subprocess tracking
-        self.process = None
+        self.process: QProcess | None = None
         self.current_step = 0
         QTimer.singleShot(0, self.prepare_flatpak_welcome)
 
-    def load_ui(self, path):
+    def load_ui(self, path: str) -> QWidget:
         loader = QUiLoader()
         file = QFile(path)
-        file.open(QFile.ReadOnly)
+        if not file.open(QIODevice.OpenModeFlag.ReadOnly):
+            raise OSError(f"Could not open installer UI file {path!r}: {file.errorString()}")
         widget = loader.load(file, self)
         file.close()
         return widget
 
-    def prepare_flatpak_welcome(self):
+    def prepare_flatpak_welcome(self) -> None:
         if not os.environ.get("FLATPAK_ID"):
             return
         label = self.welcome_page.findChild(QLabel, "welcomeLabel")
@@ -150,7 +168,7 @@ class Wizard(QWidget):
             "More options: https://podman.io/getting-started/installation" % detail,
         )
 
-    def _host_podman_status(self):
+    def _host_podman_status(self) -> tuple[bool, str]:
         try:
             version = subprocess.run(
                 ["podman", "--version"],
@@ -182,7 +200,7 @@ class Wizard(QWidget):
             return False, "%s was found, but it is not ready: %s" % (version_text, extra)
         return True, version_text
 
-    def next_page(self):
+    def next_page(self) -> None:
         index = self.stack.currentIndex()
 
         if index == 0:  # Start install
@@ -201,7 +219,7 @@ class Wizard(QWidget):
             subprocess.Popen([sys.executable, 'mainwindow.py']) # Load main GUI when the installer finishes
             self.close()
 
-    def prev_page(self):
+    def prev_page(self) -> None:
         index = self.stack.currentIndex()
         if index > 0:
             self.stack.setCurrentIndex(index - 1)
@@ -209,9 +227,7 @@ class Wizard(QWidget):
         if index - 1 == 0:
             self.back_btn.setEnabled(False)
 
-    def start_installation(self):
-        self.progress_bar = self.install_page.findChild(QProgressBar, "progressBar")
-        self.terminal_output = self.install_page.findChild(QTextEdit, "terminalOutput")
+    def start_installation(self) -> None:
         self.terminal_output.setReadOnly(True)
         self.terminal_output.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
@@ -219,13 +235,10 @@ class Wizard(QWidget):
         )
         self.terminal_output.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-        self.copy_output_button = self.install_page.findChild(QPushButton, "copyOutputButton")
         if self.copy_output_button:
             self.copy_output_button.clicked.connect(self.copy_output)
 
-        self.abort_button = self.install_page.findChild(QPushButton, "abortButton")
-        if self.abort_button:
-            self.abort_button.clicked.connect(self.confirm_abort)
+        self.abort_button.clicked.connect(self.confirm_abort)
 
         self.process = QProcess(self)
         setup_script_path = str(SETUP_SCRIPT)
@@ -235,35 +248,42 @@ class Wizard(QWidget):
 
         self.process.setProgram("/bin/bash")
         self.process.setArguments([setup_script_path])
-        self.process.setProcessChannelMode(QProcess.MergedChannels)
+        environment = QProcessEnvironment.systemEnvironment()
+        environment.insert("LINOFFICE_ISO_UI", "gui")
+        self.process.setProcessEnvironment(environment)
+        self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         self.process.readyReadStandardOutput.connect(self.handle_output)
         self.process.finished.connect(self.installation_finished)
         self.process.start()
 
-    def copy_output(self):
+    def copy_output(self) -> None:
         text = self.terminal_output.toPlainText()
         if text:
             QApplication.clipboard().setText(text)
 
-    def handle_output(self):
+    def handle_output(self) -> None:
+        process = self.process
+        if process is None:
+            raise RuntimeError("The setup process is not running.")
+
         scrollbar = self.terminal_output.verticalScrollBar()
         follow_output = (
             not self.terminal_output.textCursor().hasSelection()
             and scrollbar.value() >= scrollbar.maximum() - 4
         )
 
-        while self.process.canReadLine():
-            line = bytes(self.process.readLine()).decode(errors="ignore").rstrip()
+        while process.canReadLine():
+            line = bytes(process.readLine().data()).decode(errors="ignore").rstrip()
 
             # convert to HTML for display
             html_line = ansi_to_html(line)
             cursor = QTextCursor(self.terminal_output.document())
-            cursor.movePosition(QTextCursor.End)
+            cursor.movePosition(QTextCursor.MoveOperation.End)
             cursor.insertHtml(html_line + '<br>')
 
             # Auto-scroll only when the user is not selecting text
             if follow_output:
-                self.terminal_output.moveCursor(QTextCursor.End)
+                self.terminal_output.moveCursor(QTextCursor.MoveOperation.End)
 
             # strip ANSI for regex matching
             clean_line = strip_ansi_codes(line)
@@ -279,6 +299,9 @@ class Wizard(QWidget):
             # Detect VNC retry prompt marker from setup.sh and show GUI dialog
             if "PROMPT:VNC_SIGN_OUT_AND_RETRY" in clean_line:
                 self.show_vnc_retry_dialog()
+
+            if clean_line == "PROMPT:ISO_SOURCE":
+                self.select_iso_source()
 
             # increase progress bar
             match = re.search(r'^Step (\d+):', clean_line)
@@ -300,12 +323,32 @@ class Wizard(QWidget):
                 mapped_percent = 37 + (win_percent / 100) * (50 - 37)
                 self.progress_bar.setValue(int(mapped_percent))
         # Check if process has finished and exited successfully
-        if self.process.state() == QProcess.NotRunning:
-            if self.process.exitStatus() == QProcess.NormalExit and self.process.exitCode() == 0:
+        if process.state() == QProcess.ProcessState.NotRunning:
+            if process.exitStatus() == QProcess.ExitStatus.NormalExit and process.exitCode() == 0:
                 self.progress_bar.setValue(100)
 
-    def installation_finished(self):
-        exit_code = self.process.exitCode()
+    def select_iso_source(self) -> None:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Windows installation source")
+        dialog.setText("Download the Windows version configured in Compose, or use a local ISO?")
+        download = dialog.addButton("Download", QMessageBox.ButtonRole.AcceptRole)
+        local = dialog.addButton("Choose ISO...", QMessageBox.ButtonRole.ActionRole)
+        dialog.addButton(QMessageBox.StandardButton.Cancel)
+        dialog.exec()
+        selection = {"mode": "cancel"}
+        if dialog.clickedButton() == download:
+            selection = {"mode": "download"}
+        elif dialog.clickedButton() == local:
+            path, _ = QFileDialog.getOpenFileName(self, "Choose Windows ISO", "", "ISO images (*.iso *.ISO)")
+            if path:
+                selection = {"mode": "local", "path": path}
+        self.respond_to_prompt((json.dumps(selection) + "\n").encode())
+
+    def installation_finished(self) -> None:
+        process = self.process
+        if process is None:
+            raise RuntimeError("The setup process is not running.")
+        exit_code = process.exitCode()
         self.progress_bar.setValue(100)
 
         if exit_code == 0:
@@ -315,8 +358,15 @@ class Wizard(QWidget):
         else:
             self.show_failure_dialog()
 
+    def respond_to_prompt(self, response: bytes) -> None:
+        process = self.process
+        if not process or process.state() != QProcess.ProcessState.Running:
+            print("Cannot answer setup prompt: the setup process is not running.", file=sys.stderr)
+        elif process.write(response) == -1:
+            print(f"Cannot answer setup prompt: {process.errorString()}", file=sys.stderr)
+
     
-    def show_failure_dialog(self):
+    def show_failure_dialog(self) -> None:
         error_text = self.last_error_line or "Unknown error"
 
         dialog = QDialog(self)
@@ -340,16 +390,16 @@ class Wizard(QWidget):
         button_layout.addWidget(abort_btn)
         layout.addLayout(button_layout)
 
-        def on_try_again():
+        def on_try_again() -> None:
             dialog.accept()
             QTimer.singleShot(100, self.start_installation)
 
-        def on_show_log():
+        def on_show_log() -> None:
             log_path = str(read_data_path("windows_install.log"))
             QDesktopServices.openUrl(QUrl.fromLocalFile(log_path))
             # Keep dialog open
 
-        def on_abort():
+        def on_abort() -> None:
             dialog.accept()
             self.confirm_abort()
 
@@ -359,7 +409,7 @@ class Wizard(QWidget):
 
         dialog.exec()
 
-    def show_podman_migrate_dialog(self):
+    def show_podman_migrate_dialog(self) -> None:
         dialog = QDialog(self)
         dialog.setWindowTitle("Podman Storage Driver Migration")
 
@@ -378,29 +428,19 @@ If you press OK, the command 'podman system migrate' will be run.</b>
         button_layout.addWidget(cancel_btn)
         layout.addLayout(button_layout)
 
-        def migrate_ok():
+        def migrate_ok() -> None:
             dialog.accept()
-            if self.process and self.process.state() == QProcess.Running:
-                try:
-                    self.process.write(b"Y\n")
-                    self.process.flush()
-                except Exception:
-                    pass
+            self.respond_to_prompt(b"Y\n")
 
-        def migrate_cancel():
+        def migrate_cancel() -> None:
             dialog.reject()
-            if self.process and self.process.state() == QProcess.Running:
-                try:
-                    self.process.write(b"n\n")
-                    self.process.flush()
-                except Exception:
-                    pass
+            self.respond_to_prompt(b"n\n")
 
         ok_btn.clicked.connect(migrate_ok)
         cancel_btn.clicked.connect(migrate_cancel)
         dialog.exec()
     
-    def show_vnc_retry_dialog(self):
+    def show_vnc_retry_dialog(self) -> None:
         dialog = QDialog(self)
         dialog.setWindowTitle("RDP Connection Help")
 
@@ -426,29 +466,19 @@ After you've signed out, click <b>Try Again</b>.
         button_layout.addWidget(cancel_btn)
         layout.addLayout(button_layout)
 
-        def on_try_again():
+        def on_try_again() -> None:
             dialog.accept()
-            if self.process and self.process.state() == QProcess.Running:
-                try:
-                    self.process.write(b"Y\n")
-                    self.process.flush()
-                except Exception:
-                    pass
+            self.respond_to_prompt(b"Y\n")
 
-        def on_cancel():
+        def on_cancel() -> None:
             dialog.reject()
-            if self.process and self.process.state() == QProcess.Running:
-                try:
-                    self.process.write(b"n\n")
-                    self.process.flush()
-                except Exception:
-                    pass
+            self.respond_to_prompt(b"n\n")
 
         try_again_btn.clicked.connect(on_try_again)
         cancel_btn.clicked.connect(on_cancel)
         dialog.exec()
 
-    def confirm_abort(self):
+    def confirm_abort(self) -> None:
         # Disable buttons
         self.next_btn.setEnabled(False)
         self.back_btn.setEnabled(False)
@@ -459,10 +489,10 @@ After you've signed out, click <b>Try Again</b>.
         reply = QMessageBox.question(
             self, "Confirm Abort",
             "Are you sure you want to abort the setup?",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.StandardButton.Yes:
             # User cancelled abort → re-enable buttons
             self.next_btn.setEnabled(True)
             self.back_btn.setEnabled(False)  # Still in install state
@@ -471,8 +501,9 @@ After you've signed out, click <b>Try Again</b>.
             return
 
         # If process is still running, try to stop it gracefully
-        if self.process and self.process.state() == QProcess.Running:
-            pid = self.process.processId()
+        process = self.process
+        if process and process.state() == QProcess.ProcessState.Running:
+            pid = process.processId()
             try:
                 os.kill(pid, signal.SIGINT)
             except Exception as e:
@@ -480,8 +511,8 @@ After you've signed out, click <b>Try Again</b>.
 
             time.sleep(10)
 
-            if self.process.state() == QProcess.Running:
-                self.process.kill()
+            if process.state() == QProcess.ProcessState.Running:
+                process.kill()
 
         # Ask about removing the container
         if os.environ.get("FLATPAK_ID"):
@@ -506,16 +537,18 @@ After you've signed out, click <b>Try Again</b>.
         msg_box = QMessageBox()
         msg_box.setWindowTitle("Remove Container?")
         msg_box.setText(remove_text)
-        msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        msg_box.setDefaultButton(QMessageBox.No)
-        msg_box.setIcon(QMessageBox.Warning)
-        yes_button = msg_box.button(QMessageBox.Yes)
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+        msg_box.setIcon(QMessageBox.Icon.Warning)
+        yes_button = msg_box.button(QMessageBox.StandardButton.Yes)
         yes_button.setText("Yes, delete")
 
         # Show the message box and get the response
         remove_reply = msg_box.exec()
 
-        if remove_reply == QMessageBox.Yes:
+        if remove_reply == QMessageBox.StandardButton.Yes:
             script_dir = os.path.dirname(os.path.abspath(__file__))
             script_path = os.path.join(script_dir, 'remove_container.sh')
         
@@ -523,7 +556,7 @@ After you've signed out, click <b>Try Again</b>.
                 QMessageBox.critical(
                     self, "Error",
                     f"Error. Podman container and volume have not been removed. Script not found: {script_path}",
-                    QMessageBox.Ok
+                    QMessageBox.StandardButton.Ok
                 )
                 return
             if not os.access(script_path, os.X_OK):
@@ -544,9 +577,19 @@ After you've signed out, click <b>Try Again</b>.
                 )
                 message = ((result.stdout or '') + (result.stderr or '')).strip()
                 if result.returncode == 0:
-                    QMessageBox.information(self, "Container removed", message or "LinOffice container removed.", QMessageBox.Ok)
+                    QMessageBox.information(
+                        self,
+                        "Container removed",
+                        message or "LinOffice container removed.",
+                        QMessageBox.StandardButton.Ok,
+                    )
                 else:
-                    QMessageBox.critical(self, "Error", message or "Failed to remove the LinOffice container.", QMessageBox.Ok)
+                    QMessageBox.critical(
+                        self,
+                        "Error",
+                        message or "Failed to remove the LinOffice container.",
+                        QMessageBox.StandardButton.Ok,
+                    )
                 self.close()
                 return
         
@@ -572,7 +615,7 @@ After you've signed out, click <b>Try Again</b>.
                 QMessageBox.critical(
                     self, "Error",
                     "Error. Podman container and volume have not been removed. Could not load terminal.",
-                    QMessageBox.Ok
+                    QMessageBox.StandardButton.Ok
                 )
 
         self.close()

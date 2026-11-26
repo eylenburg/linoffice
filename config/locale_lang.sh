@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Read templates from PREFIX and write the generated files into CONFIG_DIR.
+# Read templates from PREFIX and update the generated locale settings.
 # Do not edit compose.yaml.default or linoffice.conf.default in place.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -z "${LINOFFICE_CONFIG_DIR:-}" || -z "${LINOFFICE_CONF_DEFAULT:-}" ]]; then
@@ -11,8 +11,10 @@ CONFIG_FILE="$LINOFFICE_CONF_FILE"
 COMPOSE_FILE="$LINOFFICE_COMPOSE_FILE"
 mkdir -p "$LINOFFICE_CONFIG_DIR"
 
-cp -f "$LINOFFICE_CONF_DEFAULT" "$CONFIG_FILE"
-cp -f "$LINOFFICE_COMPOSE_DEFAULT" "$COMPOSE_FILE"
+cp -f "$LINOFFICE_CONF_DEFAULT" "$CONFIG_FILE" || exit 1
+if [[ ! -f "$COMPOSE_FILE" ]]; then
+    cp "$LINOFFICE_COMPOSE_DEFAULT" "$COMPOSE_FILE" || exit 1
+fi
 
 # Detect Linux keyboard layout
 function detect_keyboard_layout() {

@@ -26,6 +26,13 @@ linoffice_seed_config || exit 1
 linoffice_write_paths_env || exit 1
 SUCCESS_FILE="${APPDATA_PATH}/success"
 PROGRESS_FILE="${APPDATA_PATH}/setup_progress.log"
+ISO_SOURCE_LEGACY_RESUME=false
+if [[ -f "$PROGRESS_FILE" ]] && grep -qx "requirements_completed" "$PROGRESS_FILE" &&
+   ! grep -qx "iso_source_selection" "$PROGRESS_FILE" &&
+   ! grep -qx "iso_source_selection_started" "$PROGRESS_FILE" &&
+   ! grep -qx "iso_source_selected" "$PROGRESS_FILE"; then
+    ISO_SOURCE_LEGACY_RESUME=true
+fi
 OUTPUT_LOG="${APPDATA_PATH}/setup_output.log"
 
 # App files stay in PREFIX. Generated compose/conf/oem stay in CONFIG_DIR.
@@ -1186,9 +1193,17 @@ function create_container() {
 
 function verify_container_health() {
     print_info "Verifying container health..."
+    local iso_file_arg=""
+    if [[ -f "$LINOFFICE_CONFIG_DIR/iso-source.yaml" ]]; then
+        iso_file_arg=" --file \"$LINOFFICE_CONFIG_DIR/iso-source.yaml\""
+    fi
     
     # Ensure container exists, otherwise create it
     if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
+        if [[ ! -f "$LINOFFICE_CONFIG_DIR/iso-source.yaml" ]] && ! $ISO_SOURCE_LEGACY_RESUME; then
+            print_error "Windows ISO source has not been selected. Run normal setup before the health check."
+            return 1
+        fi
         print_info "Container does not exist. Creating it now with podman-compose up -d..."
         if ! linoffice_compose up -d; then
             print_error "Failed to create container via compose up -d"
@@ -1205,7 +1220,7 @@ function verify_container_health() {
             print_error "Failed to start container"
             print_info "Container may be in an improper state. Try these commands to fix it:
             1. podman rm -f LinOffice
-            2. $COMPOSE_COMMAND -p linoffice --file \"$LINOFFICE_COMPOSE_FILE\" up -d"
+            2. $COMPOSE_COMMAND -p linoffice --file \"$LINOFFICE_COMPOSE_FILE\"${iso_file_arg} up -d"
             return 1
         fi
         print_info "Waiting for container to boot..."
@@ -1218,7 +1233,7 @@ function verify_container_health() {
         print_error "Container logs show potential issues"
         print_info "If the container is in an improper state, try these commands to fix it:
         1. podman rm -f LinOffice
-        2. $COMPOSE_COMMAND -p linoffice --file \"$LINOFFICE_COMPOSE_FILE\" up -d"
+        2. $COMPOSE_COMMAND -p linoffice --file \"$LINOFFICE_COMPOSE_FILE\"${iso_file_arg} up -d"
         return 1
     fi
     
@@ -1895,7 +1910,7 @@ try_install_office() {
 if [ "$HEALTHCHECK" = true ]; then
     check_requirements
     check_linoffice_container
-    verify_container_health
+    verify_container_health || exit 1
     if check_available; then
         print_success "Everything seems fine"
     else
@@ -1959,9 +1974,39 @@ fi
 check_linoffice_container
 if [ "$CONTAINER_EXISTS" -eq 0 ] && ! check_progress "$PROGRESS_CONTAINER"; then
     print_info "Container does not exist, proceeding with setup and creation."
+    if ! $ISO_SOURCE_LEGACY_RESUME || [[ -f "$LINOFFICE_CONFIG_DIR/iso-source.yaml" ]]; then
+        mark_progress "iso_source_selection_started" || exit_with_error "Could not save ISO selection state."
+        if ! python3 -u "$LINOFFICE_PREFIX/lib/iso_source.py"; then
+            exit_with_error "Windows ISO selection failed."
+        fi
+        mark_progress "iso_source_selected" || exit_with_error "Could not save ISO selection state."
+        if ! base_compose=$($COMPOSE_COMMAND -p linoffice --file "$COMPOSE_FILE" config); then
+            exit_with_error "Could not inspect the compose file for existing ISO mounts."
+        fi
+        # Inspect the Windows volumes in the normalized YAML, including wrapped short mounts.
+        if printf '%s\n' "$base_compose" | awk '
+            /^services:$/ { services = 1; next }
+            services && /^[^[:space:]]/ { exit }
+            services && /^  [^[:space:]]/ { windows = ($0 == "  windows:") }
+            windows && /^    [^[:space:]-]/ { volumes = ($0 == "    volumes:") }
+            windows && volumes && /^[[:space:]]+target:[[:space:]]*["\047]?\/(custom|boot)\.iso["\047]?[[:space:]]*$/ {
+                found = 1
+                exit
+            }
+            windows && volumes && /^[[:space:]]+- / && /:\/(custom|boot)\.iso(:[^[:space:]]*)?["\047]?[[:space:]]*$/ {
+                found = 1
+                exit
+            }
+            END { exit !found }
+        '; then
+            exit_with_error "The compose file already mounts an ISO at /custom.iso or /boot.iso. Remove that mount before using the setup ISO selector."
+        fi
+    else
+        print_info "Resuming an existing setup with its configured Windows ISO source."
+    fi
     setup_logfile
     if create_container; then
-        mark_progress "$PROGRESS_CONTAINER"
+        mark_progress "$PROGRESS_CONTAINER" || exit_with_error "Could not save container setup state."
     else
         exit_with_error "Container creation failed"
     fi
@@ -1993,9 +2038,25 @@ if ! check_progress "$PROGRESS_OFFICE" || [ "$FIRSTRUN" = true ]; then
     if ! check_success; then
         exit_with_error "Office installation failed or timed out"
     fi
-    mark_progress "$PROGRESS_OFFICE"
+    mark_progress "$PROGRESS_OFFICE" || exit_with_error "Could not save Office installation state."
 else
     print_info "Office installation already completed, skipping..."
+fi
+
+# The running container retains its bind mount even after the compose overlay changes.
+# Recreate it only after installation is complete, preserving the persistent VM volume.
+if [[ -f "$LINOFFICE_CONFIG_DIR/iso-source.yaml" ]] &&
+   grep -Fq "target: /custom.iso" "$LINOFFICE_CONFIG_DIR/iso-source.yaml"; then
+    print_info "Removing the local ISO mount from the installed LinOffice container..."
+    if ! linoffice_compose down; then
+        exit_with_error "Could not stop the LinOffice container to release the local ISO mount."
+    fi
+    if ! python3 -u "$LINOFFICE_PREFIX/lib/iso_source.py" --installation-complete; then
+        exit_with_error "Could not disable the local ISO mount after installation."
+    fi
+    if ! linoffice_compose up -d; then
+        exit_with_error "Could not restart LinOffice without the local ISO mount."
+    fi
 fi
 
 # Install desktop files if not already completed

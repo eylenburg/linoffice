@@ -22,7 +22,7 @@ readonly SCRIPT_DIR_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && p
 source "${SCRIPT_DIR_PATH}/lib/paths.sh" || exit 1
 linoffice_ensure_dirs || exit 1
 linoffice_seed_config || exit 1
-# Locale scripts rewrite compose.yaml and linoffice.conf from the templates.
+# Locale scripts update compose.yaml and linoffice.conf.
 # Run them only when this launch just created both files, not on every start.
 if [[ "${LINOFFICE_SEEDED_COMPOSE:-0}" -eq 1 && "${LINOFFICE_SEEDED_CONF:-0}" -eq 1 ]]; then
     bash "$LINOFFICE_PREFIX/config/locale_reg.sh" || echo "LinOffice: locale_reg.sh failed; continuing with default regional settings." >&2

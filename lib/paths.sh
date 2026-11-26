@@ -291,8 +291,12 @@ linoffice_compose() {
     cd "$LINOFFICE_CONFIG_DIR" || exit 1
     export COMPOSE_PROJECT_NAME=linoffice
     export COMPOSE_PROJECT_DIR="$LINOFFICE_CONFIG_DIR"
+    local -a compose_files=(--file "$LINOFFICE_COMPOSE_FILE")
+    if [[ -f "$LINOFFICE_CONFIG_DIR/iso-source.yaml" ]]; then
+      compose_files+=(--file "$LINOFFICE_CONFIG_DIR/iso-source.yaml")
+    fi
     # shellcheck disable=SC2086
-    $COMPOSE_COMMAND -p linoffice --file "$LINOFFICE_COMPOSE_FILE" "$@"
+    $COMPOSE_COMMAND -p linoffice "${compose_files[@]}" "$@"
   )
 }
 
