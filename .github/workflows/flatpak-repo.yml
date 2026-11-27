@@ -75,17 +75,11 @@ jobs:
             .flatpak/install.html
           cache-key: flatter-v2
 
-      - name: Download bundle artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: io.github.eylenburg.LinOffice-x86_64
-          path: bundles
-
       - name: Attach .flatpak to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: bundles/*.flatpak
+          files: io.github.eylenburg.LinOffice.flatpak
 
   deploy:
     needs: build
